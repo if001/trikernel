@@ -9,7 +9,9 @@ dependencies = [
   "PyYAML>=6.0.0",
   "langchain>=1.2.0",
   "langgraph>=1.0.5",
-  "langchain-ollama>=1.0.1"
+  "langchain-ollama>=1.0.1",
+  "discord-py>=2.6.4",
+  "python-dotenv>=1.0.1",
 ]
 
 [tool.pyright]

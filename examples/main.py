@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from trikernel.composition.ui import TerminalUI
+from ui.terminal import TerminalUI
 from trikernel.orchestration_kernel import (
     OllamaLLM,
     RunnerContext,
@@ -52,7 +52,8 @@ def main() -> None:
             tool_api=tool_kernel,
             llm_api=llm,
             tool_llm_api=tool_llm,
-            stream=True,
+            # stream=True,
+            stream=False,
         )
         result = runner.run(task, context)
         if result.stream_chunks:
