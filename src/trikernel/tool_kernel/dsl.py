@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
+from langchain_core.tools import StructuredTool
+
+from .langchain_tools import build_structured_tool
 from .models import ToolDefinition
-from .structured_tool import StructuredTool
 
 
 def load_tool_definitions(path: Path) -> List[ToolDefinition]:
@@ -26,27 +28,24 @@ def load_tool_definitions(path: Path) -> List[ToolDefinition]:
             ToolDefinition(
                 tool_name=tool["tool_name"],
                 description=tool.get("description", ""),
-                input_schema=tool.get("input_schema", {"type": "object", "properties": {}}),
-                output_schema=tool.get("output_schema", {"type": "object", "properties": {}}),
+                input_schema=tool.get(
+                    "input_schema", {"type": "object", "properties": {}}
+                ),
+                output_schema=tool.get(
+                    "output_schema", {"type": "object", "properties": {}}
+                ),
                 effects=tool.get("effects", []),
             )
         )
     return definitions
 
 
-def build_tools_from_dsl(path: Path, function_map: Dict[str, Any]) -> List[StructuredTool]:
+def build_tools_from_dsl(
+    path: Path, function_map: Dict[str, Any]
+) -> List[StructuredTool]:
     definitions = load_tool_definitions(path)
     tools = []
     for definition in definitions:
         handler = function_map[definition.tool_name]
-        tools.append(
-            StructuredTool.from_function(
-                handler,
-                tool_name=definition.tool_name,
-                description=definition.description,
-                input_schema=definition.input_schema,
-                output_schema=definition.output_schema,
-                effects=definition.effects,
-            )
-        )
+        tools.append(build_structured_tool(definition, handler))
     return tools

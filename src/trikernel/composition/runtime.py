@@ -26,12 +26,14 @@ class CompositionRuntime:
         tool_api: ToolKernel,
         runner: Any,
         llm_api: Any,
+        tool_llm_api: Any,
         config: Optional[CompositionConfig] = None,
     ) -> None:
         self.state_api = state_api
         self.tool_api = tool_api
         self.runner = runner
         self.llm_api = llm_api
+        self.tool_llm_api = tool_llm_api
         self.config = config or CompositionConfig()
         self._stop = asyncio.Event()
         self._worker_tasks: List[asyncio.Task] = []
@@ -111,6 +113,7 @@ class CompositionRuntime:
             state_api=self.state_api,
             tool_api=self.tool_api,
             llm_api=self.llm_api,
+            tool_llm_api=self.tool_llm_api,
         )
         return self.runner.run(task, context)
 

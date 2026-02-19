@@ -2,7 +2,7 @@ from .config import OllamaConfig, load_env, load_ollama_config
 from .models import Budget, LLMResponse, LLMToolCall, RunResult, RunnerContext, StepContext
 from .ollama import OllamaLLM
 from .protocols import LLMAPI, Runner
-from .runners import PDCARunner, SingleTurnRunner
+from .runners import PDCARunner, SingleTurnRunner, ToolLoopRunner
 from .logging import get_logger
 
 __all__ = [
@@ -17,6 +17,7 @@ __all__ = [
     "RunnerContext",
     "SingleTurnRunner",
     "PDCARunner",
+    "ToolLoopRunner",
     "Budget",
     "StepContext",
     "OllamaLLM",

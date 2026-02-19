@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import inspect
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from langchain_core.tools import StructuredTool
+
+from .langchain_tools import build_structured_tool, tool_definition_from_structured
 from .models import ToolContext, ToolDefinition
-from .structured_tool import StructuredTool
+from .protocols import ToolAPI
 
 
 def _validate_input(schema: Dict[str, Any], args: Dict[str, Any]) -> None:
@@ -13,22 +18,36 @@ def _validate_input(schema: Dict[str, Any], args: Dict[str, Any]) -> None:
         raise ValueError(f"Missing required args: {missing}")
 
 
-class ToolKernel:
+@dataclass
+class ToolEntry:
+    definition: ToolDefinition
+    handler: Any
+    structured_tool: StructuredTool
+
+
+class ToolKernel(ToolAPI):
     def __init__(self) -> None:
-        self._tools: Dict[str, StructuredTool] = {}
+        self._tools: Dict[str, ToolEntry] = {}
 
     def tool_register(
         self,
         tool_definition: ToolDefinition,
         handler: Any,
     ) -> None:
-        self._tools[tool_definition.tool_name] = StructuredTool(
+        self._tools[tool_definition.tool_name] = ToolEntry(
             definition=tool_definition,
             handler=handler,
+            structured_tool=build_structured_tool(tool_definition, handler),
         )
 
     def tool_register_structured(self, tool: StructuredTool) -> None:
-        self._tools[tool.definition.tool_name] = tool
+        definition = tool_definition_from_structured(tool)
+        handler = _extract_handler(tool)
+        self._tools[definition.tool_name] = ToolEntry(
+            definition=definition,
+            handler=handler,
+            structured_tool=tool,
+        )
 
     def tool_describe(self, tool_name: str) -> ToolDefinition:
         return self._tools[tool_name].definition
@@ -47,9 +66,46 @@ class ToolKernel:
     def tool_invoke(
         self, tool_name: str, args: Dict[str, Any], tool_context: ToolContext
     ) -> Any:
-        tool = self._tools[tool_name]
-        _validate_input(tool.definition.input_schema, args)
-        return tool.invoke(args, tool_context)
+        entry = self._tools[tool_name]
+        _validate_input(entry.definition.input_schema, args)
+        if entry.handler:
+            return _invoke_handler(entry.handler, args, tool_context)
+        return entry.structured_tool.invoke(args)
 
     def tool_list(self) -> List[ToolDefinition]:
         return [tool.definition for tool in self._tools.values()]
+
+    def tool_descriptions(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "tool_name": tool.tool_name,
+                "description": tool.description,
+                "input_schema": tool.input_schema,
+                "output_schema": tool.output_schema,
+                "effects": tool.effects,
+            }
+            for tool in self.tool_list()
+        ]
+
+    def tool_structured_list(self) -> List[StructuredTool]:
+        return [tool.structured_tool for tool in self._tools.values()]
+
+
+def _extract_handler(tool: StructuredTool) -> Optional[Any]:
+    handler = getattr(tool, "func", None)
+    if handler:
+        return handler
+    handler = getattr(tool, "coroutine", None)
+    if handler:
+        return handler
+    return getattr(tool, "_run", None)
+
+
+def _invoke_handler(handler: Any, args: Dict[str, Any], context: ToolContext) -> Any:
+    signature = inspect.signature(handler)
+    params = signature.parameters
+    if "context" in params:
+        return handler(**args, context=context)
+    if "tool_context" in params:
+        return handler(**args, tool_context=context)
+    return handler(**args)

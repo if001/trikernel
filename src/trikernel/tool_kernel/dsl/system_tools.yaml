@@ -1,0 +1,36 @@
+tools:
+  - tool_name: step.goal
+    description: Decide the current step goal using task context, failures, and recent history. Use when you need to restate or refine the goal.
+    input_schema:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+          description: Conversation id used to fetch recent turns.
+        history_limit:
+          type: integer
+          description: How many recent turns to include.
+        previous_goal:
+          type: string
+          description: Previously set step goal, if any.
+        step_context:
+          type: object
+          description: Current run context (facts, open_issues, plan, last_result).
+        user_message:
+          type: string
+          description: Current user or worker input, if more specific than previous_goal.
+        failure_reason:
+          type: string
+          description: Failure reason to adjust the goal.
+    output_schema:
+      type: object
+      properties:
+        step_goal:
+          type: string
+          description: The current step goal or refined goal.
+        rationale:
+          type: string
+          description: Short reason for the selected goal.
+        error:
+          type: string
+          description: Error reason when step goal could not be resolved.

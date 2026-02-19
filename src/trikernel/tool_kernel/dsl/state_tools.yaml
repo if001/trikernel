@@ -108,7 +108,7 @@ tools:
     output_schema:
       type: string
   - tool_name: artifact.read
-    description: Read a stored artifact by id.
+    description: Read a stored artifact by id (use after artifact.search).
     input_schema:
       type: object
       properties:
@@ -119,7 +119,7 @@ tools:
     output_schema:
       type: object
   - tool_name: artifact.search
-    description: Search artifacts by metadata or other fields to find related outputs.
+    description: Search artifacts by metadata or other fields to find related outputs, then read with artifact.read.
     input_schema:
       type: object
       properties:

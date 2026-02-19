@@ -1,12 +1,11 @@
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel
-from trikernel.tool_kernel.models import ToolContext
+from trikernel.tool_kernel.models import ToolContext, ToolDefinition
 from pathlib import Path
 
 from trikernel.tool_kernel.dsl import build_tools_from_dsl
 from trikernel.tool_kernel.state_tools import state_tool_functions
 from trikernel.tool_kernel.web_tools import web_list, web_page, web_query
-from trikernel.tool_kernel.structured_tool import StructuredTool
 
 
 def add(x: int, y: int) -> int:
@@ -15,8 +14,20 @@ def add(x: int, y: int) -> int:
 
 def test_tool_invoke():
     kernel = ToolKernel()
-    tool = StructuredTool.from_function(add, description="Add")
-    kernel.tool_register_structured(tool)
+    kernel.tool_register(
+        ToolDefinition(
+            tool_name="add",
+            description="Add",
+            input_schema={
+                "type": "object",
+                "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
+                "required": ["x", "y"],
+            },
+            output_schema={"type": "object", "properties": {}},
+            effects=[],
+        ),
+        add,
+    )
     result = kernel.tool_invoke("add", {"x": 1, "y": 2}, tool_context=None)
     assert result == 3
 

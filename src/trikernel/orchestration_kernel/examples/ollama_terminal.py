@@ -1,5 +1,6 @@
 from trikernel.composition.ui import TerminalUI
 from trikernel.orchestration_kernel import OllamaLLM, RunnerContext, SingleTurnRunner
+from trikernel.tool_kernel.ollama import ToolOllamaLLM
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel
 
@@ -23,6 +24,7 @@ def main() -> None:
             state_api=state,
             tool_api=tool_kernel,
             llm_api=llm,
+            tool_llm_api=ToolOllamaLLM(),
             stream=True,
         )
         result = runner.run(task, context)

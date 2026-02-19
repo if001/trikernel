@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 from trikernel.composition.ui import TerminalUI
@@ -9,35 +8,25 @@ from trikernel.orchestration_kernel import (
     RunnerContext,
     SingleTurnRunner,
     PDCARunner,
+    ToolLoopRunner,
 )
 from trikernel.state_kernel.kernel import StateKernel
-from trikernel.tool_kernel.dsl import build_tools_from_dsl
 from trikernel.tool_kernel.kernel import ToolKernel
-from trikernel.tool_kernel.state_tools import state_tool_functions
-from trikernel.tool_kernel.web_tools import web_tool_functions
-
-
-def _register_state_tools(kernel: ToolKernel) -> None:
-    dsl_dir = Path(__file__).resolve().parents[1] / "tool_kernel" / "dsl"
-    state_dsl = dsl_dir / "state_tools.yaml"
-    web_dsl = dsl_dir / "web_tools.yaml"
-    function_map = state_tool_functions()
-    web_tool_map = web_tool_functions()
-    tools = build_tools_from_dsl(state_dsl, function_map)
-    tools += build_tools_from_dsl(web_dsl, web_tool_map)
-    for tool in tools:
-        kernel.tool_register_structured(tool)
+from trikernel.tool_kernel.ollama import ToolOllamaLLM
+from trikernel.tool_kernel.registry import register_default_tools
 
 
 def main() -> None:
     ui = TerminalUI()
     state = StateKernel()
     tool_kernel = ToolKernel()
-    _register_state_tools(tool_kernel)
+    register_default_tools(tool_kernel)
 
     # runner = SingleTurnRunner()
-    runner = PDCARunner()
+    # runner = PDCARunner()
+    runner = ToolLoopRunner()
     llm = OllamaLLM()
+    tool_llm = ToolOllamaLLM()
 
     ui.write_output("Type a message. Empty input exits.")
     while True:
@@ -62,6 +51,7 @@ def main() -> None:
             state_api=state,
             tool_api=tool_kernel,
             llm_api=llm,
+            tool_llm_api=tool_llm,
             stream=True,
         )
         result = runner.run(task, context)

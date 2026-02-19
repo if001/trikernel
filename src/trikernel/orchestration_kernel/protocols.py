@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol, List, Tuple
+from langchain_core.tools import StructuredTool
 
 from ..state_kernel.models import Task
 
@@ -12,8 +13,11 @@ if TYPE_CHECKING:
 
 
 class LLMAPI(Protocol):
-    def generate(self, task: Task, tools: list[dict]) -> "LLMResponse": ...
+    def generate(self, task: Task, tools: list[StructuredTool]) -> LLMResponse: ...
+    def collect_stream(
+        self, task: Task, tools: List[Any]
+    ) -> Tuple[LLMResponse, List[str]]: ...
 
 
 class Runner(Protocol):
-    def run(self, task: Task, runner_context: "RunnerContext") -> "RunResult": ...
+    def run(self, task: Task, runner_context: RunnerContext) -> RunResult: ...

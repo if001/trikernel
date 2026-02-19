@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..state_kernel.protocols import StateKernelAPI
-from ..tool_kernel.protocols import ToolAPI
+from ..tool_kernel.protocols import ToolAPI, ToolLLMAPI
 from .protocols import LLMAPI
 
 
@@ -12,12 +12,14 @@ from .protocols import LLMAPI
 class LLMToolCall:
     tool_name: str
     args: Dict[str, Any]
+    tool_call_id: Optional[str] = None
 
 
 @dataclass
 class LLMResponse:
     user_output: Optional[str]
     tool_calls: List[LLMToolCall] = field(default_factory=list)
+    message: Optional[Any] = None
 
 
 @dataclass
@@ -26,6 +28,7 @@ class RunnerContext:
     state_api: StateKernelAPI
     tool_api: ToolAPI
     llm_api: LLMAPI
+    tool_llm_api: ToolLLMAPI | None = None
     stream: bool = False
 
 
@@ -56,7 +59,6 @@ class StepContext:
     open_issues: List[str] = field(default_factory=list)
     plan: List[str] = field(default_factory=list)
     last_result: str = ""
-    artifact_refs: List[str] = field(default_factory=list)
     budget: Budget = field(default_factory=lambda: Budget(remaining_steps=3))
 
     def to_dict(self) -> Dict[str, Any]:
@@ -65,6 +67,5 @@ class StepContext:
             "open_issues": list(self.open_issues),
             "plan": list(self.plan),
             "last_result": self.last_result,
-            "artifact_refs": list(self.artifact_refs),
             "budget": self.budget.to_dict(),
         }
