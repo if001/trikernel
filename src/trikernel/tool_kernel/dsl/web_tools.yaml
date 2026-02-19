@@ -1,0 +1,37 @@
+tools:
+  - tool_name: web.query
+    description: Create a web search query using user input and recent history
+    input_schema:
+      type: object
+      properties:
+        user_message:
+          type: string
+        conversation_id:
+          type: string
+        limit:
+          type: integer
+      required: [user_message, conversation_id, limit]
+    output_schema:
+      type: string
+  - tool_name: web.list
+    description: Run a web search and return a list with snippets
+    input_schema:
+      type: object
+      properties:
+        q:
+          type: string
+        k:
+          type: integer
+      required: [q, k]
+    output_schema:
+      type: object
+  - tool_name: web.page
+    description: Fetch page content by URL
+    input_schema:
+      type: object
+      properties:
+        urls:
+          type: string
+      required: [urls]
+    output_schema:
+      type: object

@@ -1,0 +1,143 @@
+tools:
+  - tool_name: task.create
+    description: Create a task. Use task_type=work for long-running background jobs handled by worker threads; use user_request/notification for main flow.
+    input_schema:
+      type: object
+      properties:
+        task_type:
+          type: string
+          description: Task type. Use work for background tasks; user_request/notification for main flow.
+        payload:
+          type: object
+          description: Task-specific payload (arbitrary JSON).
+      required: [task_type, payload]
+    output_schema:
+      type: string
+  - tool_name: task.update
+    description: Update task fields using a partial patch (e.g., payload or state).
+    input_schema:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: Target task id.
+        patch:
+          type: object
+          description: Partial update for fields like payload/state.
+      required: [task_id, patch]
+    output_schema:
+      type: object
+  - tool_name: task.get
+    description: Fetch a task by id to inspect current state or payload.
+    input_schema:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: Task id to fetch.
+      required: [task_id]
+    output_schema:
+      type: object
+  - tool_name: task.list
+    description: List tasks by filter. Use to check running work tasks or find queued work to claim.
+    input_schema:
+      type: object
+      properties:
+        filter_by:
+          type: object
+          description: Filter by task fields (e.g., task_type=work, state=queued).
+    output_schema:
+      type: array
+  - tool_name: task.claim
+    description: Claim a task for execution with an exclusive lock (prevents other runners from claiming it).
+    input_schema:
+      type: object
+      properties:
+        filter_by:
+          type: object
+          description: Filter for claimable tasks (e.g., task_type=work).
+        claimer_id:
+          type: string
+          description: Identifier for the claimer (runner id).
+        ttl_seconds:
+          type: integer
+          description: Claim lease duration in seconds.
+      required: [filter_by, claimer_id, ttl_seconds]
+    output_schema:
+      type: string
+  - tool_name: task.complete
+    description: Mark a task as done after confirming a work task completed.
+    input_schema:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: Task id to mark as done.
+      required: [task_id]
+    output_schema:
+      type: object
+  - tool_name: task.fail
+    description: Mark a task as failed and attach error info.
+    input_schema:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: Task id to mark as failed.
+        error_info:
+          type: object
+          description: Error metadata or reason.
+      required: [task_id, error_info]
+    output_schema:
+      type: object
+  - tool_name: artifact.write
+    description: Store an artifact (e.g., detailed output, logs, or references) and return its id for later retrieval.
+    input_schema:
+      type: object
+      properties:
+        media_type:
+          type: string
+          description: Media type (e.g., text/markdown, application/json).
+        body:
+          type: string
+          description: Artifact content.
+        metadata:
+          type: object
+          description: Metadata for search/filtering.
+      required: [media_type, body, metadata]
+    output_schema:
+      type: string
+  - tool_name: artifact.read
+    description: Read a stored artifact by id.
+    input_schema:
+      type: object
+      properties:
+        artifact_id:
+          type: string
+          description: Artifact id to read.
+      required: [artifact_id]
+    output_schema:
+      type: object
+  - tool_name: artifact.search
+    description: Search artifacts by metadata or other fields to find related outputs.
+    input_schema:
+      type: object
+      properties:
+        query:
+          type: object
+          description: Search filters (e.g., metadata fields).
+      required: [query]
+    output_schema:
+      type: array
+  - tool_name: turn.list_recent
+    description: List recent conversation turns
+    input_schema:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+        limit:
+          type: integer
+      required: [conversation_id, limit]
+    output_schema:
+      type: array
