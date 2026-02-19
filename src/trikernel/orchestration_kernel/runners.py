@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.tools import StructuredTool
 
 from .models import Budget, LLMResponse, RunResult, RunnerContext, StepContext
 from .protocols import Runner
-from ..state_kernel.models import Task, utc_now
-from ..tool_kernel.models import ToolContext
+from ..state_kernel.models import Task
 from .logging import get_logger
+from .message_utils import (
+    ensure_ai_message,
+    history_to_messages,
+    messages_to_history,
+    tool_message_from_result,
+)
 from .prompts import (
     build_check_step_prompt,
     build_discover_tools_prompt,
@@ -20,18 +25,10 @@ from .prompts import (
     build_tool_loop_followup_prompt,
     build_tool_loop_prompt,
 )
+from .tool_calls import execute_tool_calls
+from .types import ToolResult
 
 logger = get_logger(__name__)
-
-
-def _build_tool_context(runner_context: RunnerContext, task: Task) -> ToolContext:
-    return ToolContext(
-        runner_id=runner_context.runner_id,
-        task_id=task.task_id,
-        state_api=runner_context.state_api,
-        now=utc_now(),
-        llm_api=runner_context.tool_llm_api,
-    )
 
 
 class SingleTurnRunner(Runner):
@@ -46,34 +43,9 @@ class SingleTurnRunner(Runner):
         else:
             response = runner_context.llm_api.generate(task, tools)
 
-        tool_results = []
-        for call in response.tool_calls:
-            tool_context = _build_tool_context(runner_context, task)
-            try:
-                result = runner_context.tool_api.tool_invoke(
-                    call.tool_name, call.args, tool_context
-                )
-                tool_results.append({"tool": call.tool_name, "result": result})
-            except ValueError as exc:
-                tool_results.append(
-                    {
-                        "tool": call.tool_name,
-                        "result": {
-                            "error_type": "invalid_args",
-                            "message": str(exc),
-                        },
-                    }
-                )
-            except Exception as exc:
-                tool_results.append(
-                    {
-                        "tool": call.tool_name,
-                        "result": {
-                            "error_type": "tool_error",
-                            "message": str(exc),
-                        },
-                    }
-                )
+        tool_results = execute_tool_calls(
+            runner_context, task, response.tool_calls, allowed_tools=None
+        )
 
         user_output = response.user_output
         if user_output is None and tool_results:
@@ -94,7 +66,7 @@ class PDCARunner(Runner):
         history = []
         if runner_context.runner_id == "main":
             history = runner_context.state_api.turn_list_recent("default", 5)
-        messages = _history_to_messages(history)
+        messages = history_to_messages(history)
         tools = runner_context.tool_api.tool_structured_list()
         for v in tools:
             print(v.name)
@@ -173,7 +145,7 @@ class ToolLoopRunner(Runner):
         history = []
         if runner_context.runner_id == "main":
             history = runner_context.state_api.turn_list_recent("default", 5)
-        messages = _history_to_messages(history)
+        messages = history_to_messages(history)
         tools = runner_context.tool_api.tool_structured_list()
         while step_context.budget.remaining_steps > 0:
             step_toolset = _discover_step_tools(
@@ -265,9 +237,9 @@ def _do_step(
     step_goal: str,
     step_success_criteria: str,
     runner_context: RunnerContext,
-    tools: List[StructuredTool],
+    tools: Sequence[StructuredTool],
     step_toolset: Set[str],
-) -> Tuple[LLMResponse, List[Dict[str, Any]]]:
+) -> Tuple[LLMResponse, List[ToolResult]]:
     allowed_tools = [tool for tool in tools if tool.name in step_toolset]
     prompt = build_do_step_prompt(
         step_goal=step_goal,
@@ -275,9 +247,7 @@ def _do_step(
         step_context=step_context.to_dict(),
         step_toolset=sorted(step_toolset),
     )
-    messages: List[HumanMessage | AIMessage | ToolMessage] = [
-        HumanMessage(content=prompt)
-    ]
+    messages: List[BaseMessage] = [HumanMessage(content=prompt)]
     do_task = Task(
         task_id=task.task_id,
         task_type="pdca.do",
@@ -285,60 +255,16 @@ def _do_step(
         state="running",
     )
     response = runner_context.llm_api.generate(do_task, allowed_tools)
-    messages.append(_ensure_ai_message(response))
-
-    tool_results = []
-    for call in response.tool_calls:
-        if call.tool_name not in step_toolset:
-            tool_results.append(
-                {
-                    "tool": call.tool_name,
-                    "result": {"error_type": "tool_not_allowed"},
-                    "tool_call_id": call.tool_call_id,
-                }
-            )
-            continue
-        tool_context = _build_tool_context(runner_context, task)
-        try:
-            result = runner_context.tool_api.tool_invoke(
-                call.tool_name, call.args, tool_context
-            )
-            print("result:", result)
-            tool_results.append(
-                {
-                    "tool": call.tool_name,
-                    "result": result,
-                    "tool_call_id": call.tool_call_id,
-                }
-            )
-        except ValueError as exc:
-            tool_results.append(
-                {
-                    "tool": call.tool_name,
-                    "result": {
-                        "error_type": "invalid_args",
-                        "message": str(exc),
-                    },
-                    "tool_call_id": call.tool_call_id,
-                }
-            )
-        except Exception as exc:
-            tool_results.append(
-                {
-                    "tool": call.tool_name,
-                    "result": {
-                        "error_type": "tool_error",
-                        "message": str(exc),
-                    },
-                    "tool_call_id": call.tool_call_id,
-                }
-            )
+    messages.append(ensure_ai_message(response))
+    tool_results = execute_tool_calls(
+        runner_context, task, response.tool_calls, allowed_tools=step_toolset
+    )
 
     if not response.tool_calls:
         return response, tool_results
 
     for tool_result in tool_results:
-        messages.append(_tool_message_from_result(tool_result))
+        messages.append(tool_message_from_result(tool_result))
     followup_prompt = build_do_followup_prompt(
         step_goal=step_goal,
         step_success_criteria=step_success_criteria,
@@ -352,7 +278,7 @@ def _do_step(
         state="running",
     )
     followup_response = runner_context.llm_api.generate(followup_task, [])
-    messages.append(_ensure_ai_message(followup_response))
+    messages.append(ensure_ai_message(followup_response))
     return followup_response, tool_results
 
 
@@ -363,7 +289,7 @@ def _tool_loop_step(
     runner_context: RunnerContext,
     tools: Sequence[StructuredTool],
     step_toolset: Set[str],
-) -> Tuple[LLMResponse, List[Dict[str, Any]]]:
+) -> Tuple[LLMResponse, List[ToolResult]]:
     payload = task.payload or {}
     user_message = payload.get("message") or payload.get("prompt") or ""
     allowed_tools = [tool for tool in tools if tool.name in step_toolset]
@@ -379,57 +305,15 @@ def _tool_loop_step(
         state="running",
     )
     response = runner_context.llm_api.generate(do_task, allowed_tools)
-    messages.append(_ensure_ai_message(response))
-    tool_results = []
-    for call in response.tool_calls:
-        if call.tool_name not in step_toolset:
-            tool_results.append(
-                {
-                    "tool": call.tool_name,
-                    "result": {"error_type": "tool_not_allowed"},
-                    "tool_call_id": call.tool_call_id,
-                }
-            )
-            continue
-        tool_context = _build_tool_context(runner_context, task)
-        try:
-            result = runner_context.tool_api.tool_invoke(
-                call.tool_name, call.args, tool_context
-            )
-            tool_results.append(
-                {
-                    "tool": call.tool_name,
-                    "result": result,
-                    "tool_call_id": call.tool_call_id,
-                }
-            )
-        except ValueError as exc:
-            tool_results.append(
-                {
-                    "tool": call.tool_name,
-                    "result": {
-                        "error_type": "invalid_args",
-                        "message": str(exc),
-                    },
-                    "tool_call_id": call.tool_call_id,
-                }
-            )
-        except Exception as exc:
-            tool_results.append(
-                {
-                    "tool": call.tool_name,
-                    "result": {
-                        "error_type": "tool_error",
-                        "message": str(exc),
-                    },
-                    "tool_call_id": call.tool_call_id,
-                }
-            )
+    messages.append(ensure_ai_message(response))
+    tool_results = execute_tool_calls(
+        runner_context, task, response.tool_calls, allowed_tools=step_toolset
+    )
     if not response.tool_calls:
         return response, tool_results
 
     for tool_result in tool_results:
-        messages.append(_tool_message_from_result(tool_result))
+        messages.append(tool_message_from_result(tool_result))
     followup_prompt = build_tool_loop_followup_prompt(
         user_message=user_message,
         step_context=step_context.to_dict(),
@@ -442,7 +326,7 @@ def _tool_loop_step(
         state="running",
     )
     followup_response = runner_context.llm_api.generate(followup_task, [])
-    messages.append(_ensure_ai_message(followup_response))
+    messages.append(ensure_ai_message(followup_response))
     return followup_response, tool_results
 
 
@@ -490,38 +374,7 @@ def _act_step(
         step_context.facts.append(evaluation)
 
 
-def _history_to_messages(history: Sequence[Any]) -> List[BaseMessage]:
-    messages: List[BaseMessage] = []
-    for turn in history:
-        if isinstance(turn, (HumanMessage, AIMessage)):
-            messages.append(turn)
-            continue
-        if isinstance(turn, dict):
-            user_message = turn.get("user_message")
-            assistant_message = turn.get("assistant_message")
-        else:
-            user_message = getattr(turn, "user_message", None)
-            assistant_message = getattr(turn, "assistant_message", None)
-        if user_message:
-            messages.append(HumanMessage(content=user_message))
-        if assistant_message:
-            messages.append(AIMessage(content=assistant_message))
-    return messages
-
-
-def _ensure_ai_message(response: LLMResponse) -> AIMessage:
-    if isinstance(response.message, AIMessage):
-        return response.message
-    return AIMessage(content=response.user_output or "")
-
-
-def _tool_message_from_result(tool_result: Dict[str, Any]) -> ToolMessage:
-    tool_call_id = str(tool_result.get("tool_call_id") or tool_result.get("tool") or "")
-    content = json.dumps(tool_result.get("result"), ensure_ascii=False)
-    return ToolMessage(content=content, tool_call_id=tool_call_id)
-
-
-def _safe_json_load(text: Optional[str]) -> Dict[str, Any]:
+def _safe_json_load(text: Optional[str]) -> Dict[str, object]:
     if not text:
         return {}
     try:
@@ -544,7 +397,7 @@ def _discover_step_tools(
         step_goal=step_goal,
         step_success_criteria=step_success_criteria,
         step_context=step_context.to_dict(),
-        history=[{"role": msg.type, "content": msg.content} for msg in messages],
+        history=messages_to_history(messages),
     )
     discover_task = Task(
         task_id=task.task_id,
