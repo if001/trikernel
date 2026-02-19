@@ -1,0 +1,136 @@
+tools:
+  - tool_name: text.summarize
+    description: Summarize input text with optional length/style controls.
+    input_schema:
+      type: object
+      properties:
+        text:
+          type: string
+        max_length:
+          type: integer
+        style:
+          type: string
+        language:
+          type: string
+      required: [text]
+    output_schema:
+      type: object
+      properties:
+        summary:
+          type: string
+        bullets:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+  - tool_name: text.extract
+    description: Extract matching parts of target_text that correspond to source_text.
+    input_schema:
+      type: object
+      properties:
+        source_text:
+          type: string
+        target_text:
+          type: string
+        criteria:
+          type: string
+        language:
+          type: string
+      required: [source_text, target_text]
+    output_schema:
+      type: object
+      properties:
+        extracted:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+  - tool_name: article.outline
+    description: Create an article outline from inputs and tool results.
+    input_schema:
+      type: object
+      properties:
+        user_input:
+          type: string
+        tool_results:
+          type: array
+          items:
+            type: string
+        article_type:
+          type: string
+        audience:
+          type: string
+        language:
+          type: string
+    output_schema:
+      type: object
+      properties:
+        title:
+          type: string
+        sections:
+          type: array
+          items:
+            type: object
+            properties:
+              heading:
+                type: string
+              bullets:
+                type: array
+                items:
+                  type: string
+        notes:
+          type: string
+  - tool_name: article.polish
+    description: Polish a draft from an editor's perspective.
+    input_schema:
+      type: object
+      properties:
+        draft:
+          type: string
+        article_type:
+          type: string
+        audience:
+          type: string
+        language:
+          type: string
+      required: [draft]
+    output_schema:
+      type: object
+      properties:
+        revised:
+          type: string
+        edits:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+  - tool_name: article.generate
+    description: Generate a full article from a draft, outline, and revision notes.
+    input_schema:
+      type: object
+      properties:
+        article_type:
+          type: string
+        audience:
+          type: string
+        revisions:
+          type: array
+          items:
+            type: string
+        outline:
+          type: string
+        draft:
+          type: string
+        language:
+          type: string
+      required: [article_type, audience, draft]
+    output_schema:
+      type: object
+      properties:
+        article:
+          type: string
+        notes:
+          type: string

@@ -8,6 +8,7 @@ from .protocols import ToolAPI, ToolLLMAPI
 from .registry import register_default_tools
 from .state_tools import state_tool_functions
 from .system_tools import system_tool_functions
+from .writing_tools import writing_tool_functions
 
 __all__ = [
     "ToolKernel",
@@ -24,4 +25,5 @@ __all__ = [
     "build_tools_from_dsl",
     "state_tool_functions",
     "system_tool_functions",
+    "writing_tool_functions",
 ]
