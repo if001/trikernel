@@ -59,6 +59,13 @@ class StateKernel(StateKernelAPI):
     def artifact_read(self, artifact_id: str) -> Optional[Artifact]:
         return self._artifact_store.read(artifact_id)
 
+    def artifact_write_named(
+        self, artifact_id: str, media_type: str, body: str, metadata: Dict[str, Any]
+    ) -> str:
+        return self._artifact_store.write_named(
+            artifact_id, media_type, body, metadata
+        ).artifact_id
+
     def artifact_search(self, query: Dict[str, Any]) -> List[Artifact]:
         return list(self._artifact_store.search(query))
 

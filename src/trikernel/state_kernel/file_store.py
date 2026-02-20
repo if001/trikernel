@@ -180,6 +180,21 @@ class JsonFileArtifactStore:
             raw = data.get(artifact_id)
             return Artifact.from_dict(raw) if raw else None
 
+    def write_named(
+        self, artifact_id: str, media_type: str, body: str, metadata: Dict[str, Any]
+    ) -> Artifact:
+        with self._lock:
+            data = self._read_all()
+            artifact = Artifact(
+                artifact_id=artifact_id,
+                media_type=media_type,
+                body=body,
+                metadata=metadata,
+            )
+            data[artifact_id] = artifact.to_dict()
+            self._write_all(data)
+            return artifact
+
     def search(self, query: Dict[str, Any]) -> Iterable[Artifact]:
         with self._lock:
             data = self._read_all()
