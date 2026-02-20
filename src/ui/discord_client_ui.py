@@ -2,7 +2,7 @@
 import os
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Optional, Tuple
 
 import discord
 from discord import TextChannel
@@ -58,8 +58,8 @@ class DiscordBot(discord.Client):
         super().__init__(*args, **kwargs)
 
         self.conversation_id = "default"
-        self.user_input: asyncio.Queue[str] = asyncio.Queue(1)
-        self.assistant_output: asyncio.Queue[str] = asyncio.Queue(1)
+        self.user_input: asyncio.Queue[Tuple[int, str]] = asyncio.Queue(1)
+        self.assistant_output: asyncio.Queue[Tuple[int, str]] = asyncio.Queue(1)
         self.stop_event = asyncio.Event()
         self.channel: Optional[TextChannel] = None
         self._runner_loop = runner_loop
@@ -79,9 +79,12 @@ class DiscordBot(discord.Client):
 
         async def _loop():
             while not self.stop_event.is_set():
-                _out = await self.assistant_output.get()
+                channel_id, _out = await self.assistant_output.get()
+                target = self.get_channel(channel_id) if channel_id else _channel
+                if not isinstance(target, TextChannel):
+                    continue
                 for chunk in chunk_message(_out):
-                    await _channel.send(chunk)
+                    await target.send(chunk)
 
         self.send_loop_task = asyncio.create_task(_loop())
         if self._runner_loop and not self._ui_task:
@@ -107,16 +110,17 @@ class DiscordBot(discord.Client):
             user_input = part_message[1]
         else:
             user_input = message.content
-        self.user_input.put_nowait(user_input)
+        self.user_input.put_nowait((message.channel.id, user_input))
 
-    async def read_input(self) -> str:
+    async def read_input(self) -> Tuple[int, str]:
         return await self.user_input.get()
 
     def write_stream(self, assistant_output: str):
         raise NotImplementedError()
 
-    async def write_output(self, assistant_output: str):
-        return self.assistant_output.put_nowait(assistant_output)
+    async def write_output(self, assistant_output: str, channel_id: Optional[int] = None):
+        target_id = channel_id or (self.channel.id if self.channel else 0)
+        return self.assistant_output.put_nowait((target_id, assistant_output))
 
     @asynccontextmanager
     async def typing(self):

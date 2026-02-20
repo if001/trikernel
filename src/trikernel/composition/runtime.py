@@ -6,10 +6,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from trikernel.utils.logging import get_logger
+
 from ..orchestration_kernel.models import RunResult, RunnerContext
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI
 from ..tool_kernel.kernel import ToolKernel
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -82,7 +86,7 @@ class CompositionRuntime:
             await asyncio.sleep(self.config.poll_interval)
 
     async def _dispatch_work_tasks(self) -> None:
-        tasks = self.state_api.task_list({"task_type": "work"})
+        tasks = self.state_api.task_list(task_type="work", state="queued")
         now = datetime.now(timezone.utc)
         for task in tasks:
             if task.state != "queued":
@@ -145,6 +149,7 @@ class CompositionRuntime:
             task = self.state_api.task_get(task_id) if task_id else None
             if not task:
                 continue
+            logger.info("run worker")
             result = self._run_task(task, runner_id="worker")
             await result_sender.send_json(
                 {
