@@ -43,9 +43,12 @@ tools:
     input_schema:
       type: object
       properties:
-        filter_by:
-          type: object
-          description: Filter by task fields (e.g., task_type=work, state=queued).
+        task_type:
+          type: string
+          description: Filter by task type (e.g., work).
+        state:
+          type: string
+          description: Filter by task state (default queued).
     output_schema:
       type: array
   - tool_name: task.claim

@@ -43,7 +43,7 @@ class JsonFileTaskStore:
 
     def _write_all(self, data: Dict[str, Dict[str, Any]]) -> None:
         self._path.write_text(
-            json.dumps(data, ensure_ascii=True, indent=2), encoding="utf-8"
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
     def create(self, task_type: str, payload: Dict[str, Any]) -> Task:
@@ -75,21 +75,23 @@ class JsonFileTaskStore:
             self._write_all(data)
             return Task.from_dict(updated)
 
-    def list(self, filter_by: Optional[Dict[str, Any]] = None) -> List[Task]:
+    def list(
+        self,
+        task_type: Optional[str] = None,
+        state: Optional[str] = None,
+    ) -> List[Task]:
         with self._lock:
             data = self._read_all()
         tasks = [Task.from_dict(value) for value in data.values()]
-        if not filter_by:
+        if task_type is None and state is None:
             return tasks
         result = []
         for task in tasks:
-            matched = True
-            for key, value in filter_by.items():
-                if getattr(task, key, None) != value:
-                    matched = False
-                    break
-            if matched:
-                result.append(task)
+            if task_type is not None and task.task_type != task_type:
+                continue
+            if state is not None and task.state != state:
+                continue
+            result.append(task)
         return result
 
     def claim(
@@ -250,7 +252,8 @@ class JsonFileArtifactStore:
         return [
             artifact
             for artifact in (
-                self._read_by_id(path.stem) for path in self._artifact_dir.glob("*.json")
+                self._read_by_id(path.stem)
+                for path in self._artifact_dir.glob("*.json")
             )
             if artifact
         ]

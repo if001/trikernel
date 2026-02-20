@@ -33,8 +33,10 @@ class StateKernel(StateKernelAPI):
     def task_update(self, task_id: str, patch: Dict[str, Any]) -> Optional[Task]:
         return self._task_store.update(task_id, patch)
 
-    def task_list(self, filter_by: Optional[Dict[str, Any]] = None) -> List[Task]:
-        return self._task_store.list(filter_by)
+    def task_list(
+        self, task_type: Optional[str] = None, state: Optional[str] = None
+    ) -> List[Task]:
+        return self._task_store.list(task_type=task_type, state=state)
 
     def task_claim(
         self,

@@ -12,7 +12,11 @@ class TaskStore(Protocol):
 
     def update(self, task_id: str, patch: Dict[str, Any]) -> Optional[Task]: ...
 
-    def list(self, filter_by: Optional[Dict[str, Any]] = None) -> List[Task]: ...
+    def list(
+        self,
+        task_type: Optional[str] = None,
+        state: Optional[str] = None,
+    ) -> List[Task]: ...
 
     def claim(
         self,
@@ -61,7 +65,11 @@ class StateKernelAPI(Protocol):
 
     def task_update(self, task_id: str, patch: Dict[str, Any]) -> Optional[Task]: ...
 
-    def task_list(self, filter_by: Optional[Dict[str, Any]] = None) -> List[Task]: ...
+    def task_list(
+        self,
+        task_type: Optional[str] = None,
+        state: Optional[str] = None,
+    ) -> List[Task]: ...
 
     def task_claim(
         self,

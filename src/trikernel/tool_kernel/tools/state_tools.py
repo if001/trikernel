@@ -33,10 +33,13 @@ def task_get(task_id: str, *, context: ToolContext) -> Optional[Dict[str, Any]]:
 
 
 def task_list(
-    filter_by: Optional[Dict[str, Any]], *, context: ToolContext
+    task_type: Optional[str] = None,
+    state: Optional[str] = "queued",
+    *,
+    context: ToolContext,
 ) -> List[Dict[str, Any]]:
     state_api = _require_state_api(context)
-    return [task.to_dict() for task in state_api.task_list(filter_by)]
+    return [task.to_dict() for task in state_api.task_list(task_type, state)]
 
 
 def task_claim(
