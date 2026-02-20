@@ -4,14 +4,26 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from trikernel.utils.logging import get_logger
 
 from ..orchestration_kernel.models import RunResult, RunnerContext
+from ..orchestration_kernel.protocols import LLMAPI, Runner
+from ..tool_kernel.protocols import ToolLLMAPI
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI
-from ..tool_kernel.kernel import ToolKernel
+from ..tool_kernel.kernel import ToolAPI
+from .transports import (
+    ResultReceiver,
+    ResultSender,
+    WorkReceiver,
+    WorkSender,
+    ZmqResultReceiver,
+    ZmqResultSender,
+    ZmqWorkReceiver,
+    ZmqWorkSender,
+)
 
 logger = get_logger(__name__)
 
@@ -39,11 +51,15 @@ class CompositionRuntime:
     def __init__(
         self,
         state_api: StateKernelAPI,
-        tool_api: ToolKernel,
-        runner: Any,
-        llm_api: Any,
-        tool_llm_api: Any,
+        tool_api: ToolAPI,
+        runner: Runner,
+        llm_api: LLMAPI,
+        tool_llm_api: Optional[ToolLLMAPI],
         config: Optional[CompositionConfig] = None,
+        work_sender: Optional[WorkSender] = None,
+        work_receiver: Optional[WorkReceiver] = None,
+        result_sender: Optional[ResultSender] = None,
+        result_receiver: Optional[ResultReceiver] = None,
     ) -> None:
         self.state_api = state_api
         self.tool_api = tool_api
@@ -51,6 +67,14 @@ class CompositionRuntime:
         self.llm_api = llm_api
         self.tool_llm_api = tool_llm_api
         self.config = config or CompositionConfig()
+        self._work_sender = work_sender or ZmqWorkSender(self.config.zmq_endpoint)
+        self._work_receiver = work_receiver or ZmqWorkReceiver(self.config.zmq_endpoint)
+        self._result_sender = result_sender or ZmqResultSender(
+            self.config.zmq_result_endpoint
+        )
+        self._result_receiver = result_receiver or ZmqResultReceiver(
+            self.config.zmq_result_endpoint
+        )
         self._stop = asyncio.Event()
         self._worker_tasks: List[asyncio.Task] = []
         self._main_task: Optional[asyncio.Task] = None
@@ -59,6 +83,7 @@ class CompositionRuntime:
 
     async def start(self) -> None:
         self._ensure_worker_count()
+        logger.info("main start")
         self._main_task = asyncio.create_task(self._main_loop())
 
     async def stop(self) -> None:
@@ -74,15 +99,16 @@ class CompositionRuntime:
             self._worker_tasks.append(asyncio.create_task(self._worker_loop()))
 
     async def _main_loop(self) -> None:
-        sender = self._create_sender()
-        result_receiver = self._create_result_receiver()
+        logger.info("_main_loop")
         while not self._stop.is_set():
+            logger.info("_dispatch_work_tasks()")
             await self._dispatch_work_tasks()
-            await self._send_pending_tasks(sender)
-            await self._receive_worker_results(result_receiver)
+            logger.info("self._send_pending_tasks(sender)")
+            await self._send_pending_tasks(self._work_sender)
+            logger.info("self._receive_worker_results(result_receiver)")
+            await self._receive_worker_results(self._result_receiver)
             self._fail_timed_out_pending()
             self._fail_timed_out_tasks()
-            await self._process_user_tasks()
             await asyncio.sleep(self.config.poll_interval)
 
     async def _dispatch_work_tasks(self) -> None:
@@ -98,6 +124,7 @@ class CompositionRuntime:
                 continue
             if run_at > now:
                 continue
+            logger.info("claim worker task")
             claimed = self.state_api.task_claim({"task_id": task.task_id}, "main", 30)
             if not claimed:
                 continue
@@ -123,26 +150,10 @@ class CompositionRuntime:
             self._inflight[entry.task_id] = time.monotonic()
             available -= 1
 
-    async def _process_user_tasks(self) -> None:
-        for task_type in ("user_request", "notification"):
-            task_id = self.state_api.task_claim({"task_type": task_type}, "main", 30)
-            if not task_id:
-                continue
-            task = self.state_api.task_get(task_id)
-            if not task:
-                continue
-            if task.task_type == "notification":
-                self.state_api.task_complete(task.task_id)
-                continue
-            result = self._run_task(task, runner_id="main")
-            self._finalize_task(task, result)
-
     async def _worker_loop(self) -> None:
-        receiver = self._create_receiver()
-        result_sender = self._create_result_sender()
         while not self._stop.is_set():
             try:
-                payload = await receiver.recv_json(flags=0)
+                payload = await self._work_receiver.recv_json()
             except asyncio.CancelledError:
                 logger.error("worker_loop asyncio.CancelledError")
                 return
@@ -153,7 +164,7 @@ class CompositionRuntime:
                 continue
             logger.info("run worker")
             result = self._run_task(task, runner_id="worker")
-            await result_sender.send_json(
+            await self._result_sender.send_json(
                 {
                     "task_id": task.task_id,
                     "task_state": result.task_state,
@@ -181,14 +192,10 @@ class CompositionRuntime:
                 task.task_id, result.error or {"message": "failed"}
             )
 
-    async def _receive_worker_results(self, receiver: Any) -> None:
-        try:
-            import zmq  # type: ignore
-        except ImportError:
-            return
+    async def _receive_worker_results(self, receiver: ResultReceiver) -> None:
         while True:
             try:
-                payload = await receiver.recv_json(flags=zmq.NOBLOCK)
+                payload = await receiver.recv_json()
             except asyncio.CancelledError:
                 logger.error("_recive_worker_results asyncio.CancelledError")
                 return
@@ -223,6 +230,13 @@ class CompositionRuntime:
                 stream_chunks=[],
             )
             self._finalize_task(task, result)
+
+    async def run_once(self) -> None:
+        await self._dispatch_work_tasks()
+        await self._send_pending_tasks(self._work_sender)
+        await self._receive_worker_results(self._result_receiver)
+        self._fail_timed_out_pending()
+        self._fail_timed_out_tasks()
 
     def _fail_timed_out_tasks(self) -> None:
         if self.config.worker_timeout_seconds <= 0:
@@ -287,47 +301,3 @@ class CompositionRuntime:
         if task_id in self._inflight:
             return True
         return any(entry.task_id == task_id for entry in self._pending)
-
-    def _create_sender(self) -> Any:
-        try:
-            import zmq  # type: ignore
-            import zmq.asyncio  # type: ignore
-        except ImportError as exc:
-            raise RuntimeError("pyzmq is required for the composition layer") from exc
-        context = zmq.asyncio.Context.instance()
-        socket = context.socket(zmq.PUSH)
-        socket.bind(self.config.zmq_endpoint)
-        return socket
-
-    def _create_receiver(self) -> Any:
-        try:
-            import zmq  # type: ignore
-            import zmq.asyncio  # type: ignore
-        except ImportError as exc:
-            raise RuntimeError("pyzmq is required for the composition layer") from exc
-        context = zmq.asyncio.Context.instance()
-        socket = context.socket(zmq.PULL)
-        socket.connect(self.config.zmq_endpoint)
-        return socket
-
-    def _create_result_sender(self) -> Any:
-        try:
-            import zmq  # type: ignore
-            import zmq.asyncio  # type: ignore
-        except ImportError as exc:
-            raise RuntimeError("pyzmq is required for the composition layer") from exc
-        context = zmq.asyncio.Context.instance()
-        socket = context.socket(zmq.PUSH)
-        socket.connect(self.config.zmq_result_endpoint)
-        return socket
-
-    def _create_result_receiver(self) -> Any:
-        try:
-            import zmq  # type: ignore
-            import zmq.asyncio  # type: ignore
-        except ImportError as exc:
-            raise RuntimeError("pyzmq is required for the composition layer") from exc
-        context = zmq.asyncio.Context.instance()
-        socket = context.socket(zmq.PULL)
-        socket.bind(self.config.zmq_result_endpoint)
-        return socket
