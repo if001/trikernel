@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 
 def utc_now() -> str:
@@ -15,15 +15,31 @@ def parse_time(value: Optional[str]) -> Optional[datetime]:
     return datetime.fromisoformat(value)
 
 
+TaskType = Literal[
+    "user_request",
+    "work",
+    "notification",
+    "pdca.plan",
+    "pdca.do",
+    "pdca.do.followup",
+    "pdca.check",
+    "pdca.discover",
+    "tool_loop.step",
+    "tool_loop.followup",
+    "tool_loop.final",
+]
+
+
 @dataclass
 class Task:
     task_id: str
-    task_type: str
+    task_type: TaskType
     payload: Dict[str, Any]
     state: str
     artifact_refs: List[str] = field(default_factory=list)
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
+    run_at: Optional[str] = None
     claimed_by: Optional[str] = None
     claim_expires_at: Optional[str] = None
 
@@ -36,6 +52,7 @@ class Task:
             "artifact_refs": list(self.artifact_refs),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "run_at": self.run_at,
             "claimed_by": self.claimed_by,
             "claim_expires_at": self.claim_expires_at,
         }
@@ -50,6 +67,7 @@ class Task:
             artifact_refs=list(data.get("artifact_refs", [])),
             created_at=data.get("created_at", utc_now()),
             updated_at=data.get("updated_at", utc_now()),
+            run_at=data.get("run_at"),
             claimed_by=data.get("claimed_by"),
             claim_expires_at=data.get("claim_expires_at"),
         )

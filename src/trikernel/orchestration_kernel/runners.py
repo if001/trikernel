@@ -35,6 +35,14 @@ logger = get_logger(__name__)
 class SingleTurnRunner(Runner):
     def run(self, task: Task, runner_context: RunnerContext) -> RunResult:
         user_message = extract_user_message(task.payload or {})
+        if not user_message:
+            return RunResult(
+                user_output=None,
+                task_state="failed",
+                artifact_refs=[],
+                error={"code": "MISSING_MESSAGE", "message": "message is required"},
+                stream_chunks=[],
+            )
         if runner_context.runner_id == "main":
             recent = runner_context.state_api.turn_list_recent("default", 5)
             llm_task = Task(
@@ -78,6 +86,14 @@ class SingleTurnRunner(Runner):
 
 class PDCARunner(Runner):
     def run(self, task: Task, runner_context: RunnerContext) -> RunResult:
+        if not extract_user_message(task.payload or {}):
+            return RunResult(
+                user_output=None,
+                task_state="failed",
+                artifact_refs=[],
+                error={"code": "MISSING_MESSAGE", "message": "message is required"},
+                stream_chunks=[],
+            )
         step_context = _initial_step_context(task)
         history = []
         if runner_context.runner_id == "main":
@@ -164,6 +180,14 @@ class ToolLoopRunner(Runner):
         base_messages = history_to_messages(history)
         tool_messages: List[BaseMessage] = []
         tools = runner_context.tool_api.tool_structured_list()
+        if not extract_user_message(task.payload or {}):
+            return RunResult(
+                user_output=None,
+                task_state="failed",
+                artifact_refs=[],
+                error={"code": "MISSING_MESSAGE", "message": "message is required"},
+                stream_chunks=[],
+            )
         completed = False
         while step_context.budget.remaining_steps > 0:
             step_toolset = _discover_step_tools(

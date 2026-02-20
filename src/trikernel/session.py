@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union, Any
 
 from .orchestration_kernel.models import RunResult, RunnerContext
 from .orchestration_kernel.protocols import LLMAPI, Runner
 from .state_kernel.models import Task
 from .state_kernel.protocols import StateKernelAPI
 from .tool_kernel.protocols import ToolAPI, ToolLLMAPI
+from .payloads import UserRequestPayload, WorkPayload
 
 
 @dataclass
@@ -42,7 +43,7 @@ class TrikernelSession:
 
     def send_message(self, message: str, stream: bool = False) -> MessageResult:
         task_id = self._state_api.task_create(
-            "user_request", {"user_message": message}
+            "user_request", UserRequestPayload(user_message=message).to_dict()
         )
         turn_id = self._state_api.turn_append_user(
             self._conversation_id, message, task_id
@@ -103,6 +104,19 @@ class TrikernelSession:
                 messages.append(message)
             self._state_api.task_complete(notification_id)
         return messages
+
+    def create_work_task(
+        self,
+        payload: Union[WorkPayload, Dict[str, Any]],
+        run_at: Optional[str] = None,
+    ) -> str:
+        payload_dict = (
+            payload.to_dict() if isinstance(payload, WorkPayload) else payload
+        )
+        task_id = self._state_api.task_create("work", payload_dict)
+        if run_at:
+            self._state_api.task_update(task_id, {"run_at": run_at})
+        return task_id
 
     def _run_task(self, task: Task, stream: bool) -> RunResult:
         context = RunnerContext(

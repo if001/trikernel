@@ -45,6 +45,7 @@ def execute_tool_calls(
             result = runner_context.tool_api.tool_invoke(
                 call.tool_name, call.args, tool_context
             )
+            logger.info(f"[{call.tool_name}]: {result}")
             tool_results.append(
                 {
                     "tool": call.tool_name,

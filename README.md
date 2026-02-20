@@ -14,7 +14,7 @@ Trikernel is a three-kernel architecture for building LLM agents. It separates s
 ### Install
 
 ```bash
-python -m pip install -e .
+uv pip install -e .
 ```
 
 ### Quickstart (Terminal)
@@ -68,6 +68,23 @@ Note: Tool implementations should accept `context` as the last argument. It is i
 
 Core DSL files live under `src/trikernel/tool_kernel/dsl`.
 
+### Task Payload Schemas
+
+- `user_request`: `{"user_message": "..."}`
+- `work`: `{"message": "..."}` (the worker/runner interprets this message)
+
+### Work Tasks (Background)
+
+Use `TrikernelSession.create_work_task()` to enqueue background tasks handled by workers.
+Example payloads are user-defined; the worker/runner can use tools to fulfill them.
+
+```python
+task_id = session.create_work_task(
+    {"message": "https://example.com を読んで要約して保存してください"},
+    run_at="2025-01-01T12:00:00+00:00",
+)
+```
+
 ### Environment Variables
 
 Use `.env` for configuration:
@@ -76,6 +93,7 @@ Use `.env` for configuration:
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=qwen3:8b
 OLLAMA_SMALL_MODEL=qwen3:4b
+OLLAMA_EMBED_MODEL=nomic-embed-text
 work_space_dir=/path/to/workspace
 ```
 
@@ -97,7 +115,7 @@ python -m pytest
 ### インストール
 
 ```bash
-python -m pip install -e .
+uv pip install -e .
 ```
 
 ### クイックスタート（ターミナル）
@@ -151,6 +169,23 @@ if __name__ == "__main__":
 
 コアの DSL は `src/trikernel/tool_kernel/dsl` にあります。
 
+### タスクの payload 形式
+
+- `user_request`: `{"user_message": "..."}`
+- `work`: `{"message": "..."}`（worker/runner がこのメッセージを解釈します）
+
+### Work タスク（バックグラウンド）
+
+`TrikernelSession.create_work_task()` で worker 用のタスクを投入できます。
+payload の内容は任意で、worker/runner がツールを使って処理する想定です。
+
+```python
+task_id = session.create_work_task(
+    {"message": "https://example.com を読んで要約して保存してください"},
+    run_at="2025-01-01T12:00:00+00:00",
+)
+```
+
 ### 環境変数
 
 `.env` で設定します。
@@ -159,6 +194,7 @@ if __name__ == "__main__":
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=qwen3:8b
 OLLAMA_SMALL_MODEL=qwen3:4b
+OLLAMA_EMBED_MODEL=nomic-embed-text
 work_space_dir=/path/to/workspace
 ```
 

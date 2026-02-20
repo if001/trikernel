@@ -119,13 +119,23 @@ tools:
     output_schema:
       type: object
   - tool_name: artifact.search
-    description: Search artifacts by metadata or other fields to find related outputs, then read with artifact.read.
+    description: Search artifacts by semantic text query and/or metadata, then read with artifact.read.
     input_schema:
       type: object
       properties:
         query:
           type: object
-          description: Search filters (e.g., metadata fields).
+          description: Search options such as text query, metadata filter, and k.
+          properties:
+            text:
+              type: string
+              description: Text query for semantic search.
+            k:
+              type: integer
+              description: Number of results to return.
+            metadata:
+              type: object
+              description: Exact-match metadata filter.
       required: [query]
     output_schema:
       type: array

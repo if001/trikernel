@@ -75,14 +75,13 @@ class DiscordBot(discord.Client):
         if type(_channel) != TextChannel:
             raise ValueError("channel not exist")
 
-        channel = _channel
-        self.channel = channel
+        self.channel = _channel
 
         async def _loop():
             while not self.stop_event.is_set():
                 _out = await self.assistant_output.get()
                 for chunk in chunk_message(_out):
-                    await channel.send(chunk)
+                    await _channel.send(chunk)
 
         self.send_loop_task = asyncio.create_task(_loop())
         if self._runner_loop and not self._ui_task:
