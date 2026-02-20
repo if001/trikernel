@@ -22,13 +22,22 @@ def history_to_messages(history: Sequence[HistoryItem]) -> List[BaseMessage]:
         if isinstance(turn, dict):
             user_message = turn.get("user_message")
             assistant_message = turn.get("assistant_message")
+            created_at = turn.get("created_at")
         else:
             user_message = getattr(turn, "user_message", None)
             assistant_message = getattr(turn, "assistant_message", None)
+            created_at = getattr(turn, "created_at", None)
+        timestamp = (
+            str(created_at)[:19] if isinstance(created_at, str) and created_at else ""
+        )
         if isinstance(user_message, str) and user_message:
-            messages.append(HumanMessage(content=user_message))
+            content = f"{timestamp}: {user_message}" if timestamp else user_message
+            messages.append(HumanMessage(content=content))
         if isinstance(assistant_message, str) and assistant_message:
-            messages.append(AIMessage(content=assistant_message))
+            content = (
+                f"{timestamp}: {assistant_message}" if timestamp else assistant_message
+            )
+            messages.append(AIMessage(content=content))
     return messages
 
 
