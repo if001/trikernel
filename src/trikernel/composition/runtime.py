@@ -144,10 +144,12 @@ class CompositionRuntime:
             try:
                 payload = await receiver.recv_json(flags=0)
             except asyncio.CancelledError:
+                logger.error("worker_loop asyncio.CancelledError")
                 return
             task_id = payload.get("task_id")
             task = self.state_api.task_get(task_id) if task_id else None
             if not task:
+                logger.error("task not found")
                 continue
             logger.info("run worker")
             result = self._run_task(task, runner_id="worker")
@@ -188,8 +190,10 @@ class CompositionRuntime:
             try:
                 payload = await receiver.recv_json(flags=zmq.NOBLOCK)
             except asyncio.CancelledError:
+                logger.error("_recive_worker_results asyncio.CancelledError")
                 return
-            except Exception:
+            except Exception as e:
+                logger.error(f"_recive_worker_results {e}")
                 break
             task_id = payload.get("task_id")
             if not task_id:
@@ -209,6 +213,8 @@ class CompositionRuntime:
                         "artifact_refs": payload.get("artifact_refs") or [],
                     },
                 )
+            else:
+                logger.warning("Worker task ended. But output is None")
             result = RunResult(
                 user_output=payload.get("user_output"),
                 task_state=payload.get("task_state") or "failed",
@@ -267,6 +273,7 @@ class CompositionRuntime:
         try:
             parsed = datetime.fromisoformat(str(run_at))
         except (TypeError, ValueError):
+            logger.error("_parse_run_at: parse error")
             self.state_api.task_fail(
                 task.task_id,
                 {"code": "INVALID_RUN_AT", "message": "Invalid run_at timestamp."},

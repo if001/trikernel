@@ -224,7 +224,7 @@ class ToolLoopRunner(Runner):
             logger.error("Step budget exceeded.")
             tool_messages.append(
                 ToolMessage(
-                    content='{"error":"Step budget exceeded.","code":"BUDGET_EXCEEDED"}',
+                    content='{"error":"上限に達したためtool使用をストップしました。ここまでのtoolの結果を利用してください。","code":"BUDGET_EXCEEDED"}',
                     tool_call_id="system",
                 )
             )
@@ -238,12 +238,12 @@ class ToolLoopRunner(Runner):
         )
         budget_error = None
         task_state = "done"
-        if not completed and step_context.budget.remaining_steps <= 0:
-            budget_error = {
-                "code": "BUDGET_EXCEEDED",
-                "message": "Step budget exceeded.",
-            }
-            task_state = "failed"
+        # if not completed and step_context.budget.remaining_steps <= 0:
+        #     budget_error = {
+        #         "code": "BUDGET_EXCEEDED",
+        #         "message": "Step budget exceeded.",
+        #     }
+        #     task_state = "failed"
         return RunResult(
             user_output=final_response.user_output,
             task_state=task_state,
