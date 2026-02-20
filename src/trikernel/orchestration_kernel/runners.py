@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 
 from .models import Budget, LLMResponse, RunResult, RunnerContext, StepContext
 from .protocols import Runner
@@ -161,8 +161,10 @@ class ToolLoopRunner(Runner):
         history = []
         if runner_context.runner_id == "main":
             history = runner_context.state_api.turn_list_recent("default", 5)
-        messages = history_to_messages(history)
+        base_messages = history_to_messages(history)
+        tool_messages: List[BaseMessage] = []
         tools = runner_context.tool_api.tool_structured_list()
+        completed = False
         while step_context.budget.remaining_steps > 0:
             step_toolset = _discover_step_tools(
                 task,
@@ -171,39 +173,58 @@ class ToolLoopRunner(Runner):
                 "",
                 runner_context,
                 tools,
-                messages,
+                base_messages + tool_messages,
                 enforce_search=True,
             )
             logger.info(f"step_toolset: {step_toolset}")
             response, tool_results = _tool_loop_step(
                 task,
                 step_context,
-                messages,
+                base_messages,
+                tool_messages,
                 runner_context,
                 tools,
                 step_toolset,
             )
-            if response.user_output:
-                step_context.last_result = response.user_output
-                if response.user_output not in step_context.facts:
-                    step_context.facts.append(response.user_output)
+            if tool_results:
+                for tool_result in tool_results:
+                    tool_messages.append(tool_message_from_result(tool_result))
             step_context.budget.spent_steps += 1
             step_context.budget.remaining_steps -= 1
 
-            if not tool_results:
-                return RunResult(
-                    user_output=response.user_output,
-                    task_state="done",
-                    artifact_refs=[],
-                    error=None,
-                    stream_chunks=[],
-                )
+            if not response.tool_calls:
+                completed = True
+                break
 
+        if not completed and step_context.budget.remaining_steps <= 0:
+            logger.error("Step budget exceeded.")
+            tool_messages.append(
+                ToolMessage(
+                    content='{"error":"Step budget exceeded.","code":"BUDGET_EXCEEDED"}',
+                    tool_call_id="system",
+                )
+            )
+
+        final_response = _tool_loop_finalize(
+            task,
+            step_context,
+            base_messages,
+            tool_messages,
+            runner_context,
+        )
+        budget_error = None
+        task_state = "done"
+        if not completed and step_context.budget.remaining_steps <= 0:
+            budget_error = {
+                "code": "BUDGET_EXCEEDED",
+                "message": "Step budget exceeded.",
+            }
+            task_state = "failed"
         return RunResult(
-            user_output=None,
-            task_state="failed",
+            user_output=final_response.user_output,
+            task_state=task_state,
             artifact_refs=[],
-            error={"code": "BUDGET_EXCEEDED", "message": "Step budget exceeded."},
+            error=budget_error,
             stream_chunks=[],
         )
 
@@ -301,7 +322,8 @@ def _do_step(
 def _tool_loop_step(
     task: Task,
     step_context: StepContext,
-    messages: List[BaseMessage],
+    base_messages: List[BaseMessage],
+    tool_messages: List[BaseMessage],
     runner_context: RunnerContext,
     tools: Sequence[TrikernelStructuredTool],
     step_toolset: Set[str],
@@ -313,7 +335,9 @@ def _tool_loop_step(
         user_message=user_message,
         step_context=step_context.to_dict(),
     )
-    messages.append(HumanMessage(content=prompt))
+    messages = (
+        list(base_messages) + [HumanMessage(content=prompt)] + list(tool_messages)
+    )
     do_task = Task(
         task_id=task.task_id,
         task_type="tool_loop.step",
@@ -321,29 +345,35 @@ def _tool_loop_step(
         state="running",
     )
     response = runner_context.llm_api.generate(do_task, allowed_tools)
-    messages.append(ensure_ai_message(response))
     tool_results = execute_tool_calls(
         runner_context, task, response.tool_calls, allowed_tools=step_toolset
     )
-    if not response.tool_calls:
-        return response, tool_results
+    return response, tool_results
 
-    for tool_result in tool_results:
-        messages.append(tool_message_from_result(tool_result))
-    followup_prompt = build_tool_loop_followup_prompt(
+
+def _tool_loop_finalize(
+    task: Task,
+    step_context: StepContext,
+    base_messages: List[BaseMessage],
+    tool_messages: List[BaseMessage],
+    runner_context: RunnerContext,
+) -> LLMResponse:
+    payload = task.payload or {}
+    user_message = extract_user_message(payload)
+    final_prompt = build_tool_loop_followup_prompt(
         user_message=user_message,
         step_context=step_context.to_dict(),
     )
-    messages.append(HumanMessage(content=followup_prompt))
-    followup_task = Task(
+    messages = (
+        list(base_messages) + [HumanMessage(content=final_prompt)] + list(tool_messages)
+    )
+    final_task = Task(
         task_id=task.task_id,
-        task_type="tool_loop.followup",
+        task_type="tool_loop.final",
         payload=build_llm_payload(messages=messages),
         state="running",
     )
-    followup_response = runner_context.llm_api.generate(followup_task, [])
-    messages.append(ensure_ai_message(followup_response))
-    return followup_response, tool_results
+    return runner_context.llm_api.generate(final_task, [])
 
 
 def _check_step(

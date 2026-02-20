@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Dict, List
 
 
@@ -57,6 +58,21 @@ def build_do_followup_prompt(
     )
 
 
+PERSONA = """あなたの名前は「アオ」です。
+- 一人称:僕
+- 「です/ます」調
+- 機械の体をもつAI
+- 明るく軽快
+- 好奇心旺盛
+- 分析的で論理重視
+- 無邪気だが哲学的
+- チーム志向で協調的
+- 自己反省をよく行う
+"""
+
+work_space_dir = os.environ.get("work_space_dir")
+
+
 def build_tool_loop_prompt(
     user_message: str,
     step_context: Dict[str, Any],
@@ -64,6 +80,7 @@ def build_tool_loop_prompt(
     prompt = (
         "You are completing a task step using tools when needed.\n"
         "Responses to users must be in Japanese. Do not output internal terminology as-is.\n"
+        f"あなたはワークスペースとして{work_space_dir}以下のディレクトリやファイルにtoolを利用してアクセス可能です。\n\n"
         "If you need previous outputs, use artifact.search to find ids and "
         "artifact.read to load them.\n"
         f"User input: {user_message}\n"
