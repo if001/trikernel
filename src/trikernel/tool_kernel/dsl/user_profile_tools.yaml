@@ -1,0 +1,36 @@
+tools:
+  - tool_name: user.profile.save
+    description: Save user profile (name, thinking, preferences, attributes, notes).
+    input_schema:
+      type: object
+      properties:
+        name:
+          type: string
+        thinking:
+          type: string
+        preferences:
+          type: string
+        attributes:
+          type: string
+        notes:
+          type: string
+        merge:
+          type: boolean
+      required: []
+    output_schema:
+      type: object
+      properties:
+        status:
+          type: string
+        profile:
+          type: object
+  - tool_name: user.profile.load
+    description: Load user profile from the shared profile file.
+    input_schema:
+      type: object
+      properties: {}
+    output_schema:
+      type: object
+      properties:
+        profile:
+          type: object
