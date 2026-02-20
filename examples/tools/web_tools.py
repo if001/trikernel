@@ -1,18 +1,33 @@
 from __future__ import annotations
 
+import os
 import json
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+from dataclasses import dataclass
+from dotenv import load_dotenv
 
-from .config import load_ollama_config, load_web_client_config
-from .models import ToolContext
+from trikernel.tool_kernel.config import load_ollama_config
+from trikernel.tool_kernel.models import ToolContext
+
+
+@dataclass(frozen=True)
+class WebClientConfig:
+    base_url: str
+
+
+def load_web_client_config() -> WebClientConfig:
+    load_dotenv()
+    base_url = os.environ.get("SIMPLE_CLIENT_BASE_URL", "http://localhost:8000")
+    return WebClientConfig(base_url=base_url)
 
 
 def web_query(
     user_message: str,
     conversation_id: str,
     limit: int,
+    *,
     context: ToolContext,
 ) -> str:
     state_api = _require_state_api(context)
@@ -30,21 +45,23 @@ def web_query(
     return content.strip()
 
 
-def web_list(q: str, k: int, context: ToolContext) -> Dict[str, Any]:
+def web_list(q: str, k: int, *, context: ToolContext) -> Dict[str, Any]:
     _require_state_api(context)
     config = load_web_client_config()
     payload = {"q": q, "k": k}
     return _post_json(f"{config.base_url}/list", payload)
 
 
-def web_page(urls: str, context: ToolContext) -> Dict[str, Any]:
+def web_page(urls: str, *, context: ToolContext) -> Dict[str, Any]:
     _require_state_api(context)
     config = load_web_client_config()
     payload = {"urls": urls}
     return _post_json(f"{config.base_url}/page", payload)
 
 
-def _build_query_messages(user_message: str, history: List[Any]) -> List[Dict[str, str]]:
+def _build_query_messages(
+    user_message: str, history: List[Any]
+) -> List[Dict[str, str]]:
     messages: List[Dict[str, str]] = [
         {
             "role": "system",
@@ -62,7 +79,9 @@ def _build_query_messages(user_message: str, history: List[Any]) -> List[Dict[st
 
 def _post_json(url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    request = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}
+    )
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             body = response.read().decode("utf-8")
@@ -80,7 +99,7 @@ def _require_state_api(context: ToolContext) -> Any:
 
 def web_tool_functions() -> Dict[str, Any]:
     return {
-            "web.query": web_query,
-            "web.list": web_list,
-            "web.page": web_page,
-        }
+        "web.query": web_query,
+        "web.list": web_list,
+        "web.page": web_page,
+    }

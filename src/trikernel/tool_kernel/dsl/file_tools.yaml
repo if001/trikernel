@@ -1,0 +1,124 @@
+tools:
+  - tool_name: fs.tree
+    description: List directory contents as a tree within work_space_dir.
+    input_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Relative path within work_space_dir.
+        max_depth:
+          type: integer
+          description: Maximum depth to traverse.
+        include_files:
+          type: boolean
+          description: Include files in the output.
+        max_entries:
+          type: integer
+          description: Maximum number of entries to return.
+    output_schema:
+      type: object
+  - tool_name: fs.stat
+    description: Return file metadata within work_space_dir.
+    input_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Relative path within work_space_dir.
+      required: [path]
+    output_schema:
+      type: object
+  - tool_name: fs.find
+    description: Find files or directories within work_space_dir.
+    input_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Relative path within work_space_dir.
+        name_pattern:
+          type: string
+          description: Glob pattern, e.g. "*.py".
+        max_depth:
+          type: integer
+          description: Maximum depth to traverse.
+        file_type:
+          type: string
+          description: any | file | dir.
+        max_results:
+          type: integer
+          description: Maximum results to return.
+    output_schema:
+      type: object
+  - tool_name: fs.rg
+    description: Search for a pattern in files within work_space_dir.
+    input_schema:
+      type: object
+      properties:
+        pattern:
+          type: string
+          description: Regex pattern to search.
+        path:
+          type: string
+          description: Relative path within work_space_dir.
+        ignore_case:
+          type: boolean
+          description: Case-insensitive search.
+        max_matches:
+          type: integer
+          description: Maximum matches to return.
+        file_glob:
+          type: string
+          description: Glob pattern for files, e.g. "**/*.py".
+      required: [pattern]
+    output_schema:
+      type: object
+  - tool_name: fs.head
+    description: Read the first N lines of a file within work_space_dir.
+    input_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Relative file path within work_space_dir.
+        lines:
+          type: integer
+          description: Number of lines to read.
+        max_bytes:
+          type: integer
+          description: Maximum file size to read.
+      required: [path]
+    output_schema:
+      type: object
+  - tool_name: fs.tail
+    description: Read the last N lines of a file within work_space_dir.
+    input_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Relative file path within work_space_dir.
+        lines:
+          type: integer
+          description: Number of lines to read.
+        max_bytes:
+          type: integer
+          description: Maximum file size to read.
+      required: [path]
+    output_schema:
+      type: object
+  - tool_name: fs.read_file
+    description: Read a file within work_space_dir with size limits.
+    input_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          description: Relative file path within work_space_dir.
+        max_bytes:
+          type: integer
+          description: Maximum file size to read.
+      required: [path]
+    output_schema:
+      type: object

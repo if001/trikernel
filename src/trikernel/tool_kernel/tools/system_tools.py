@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 
-from .models import ToolContext
-from .prompts import build_step_goal_prompt
+from ..models import ToolContext
+from ..prompts import build_step_goal_prompt
 
 
 def _require_state_api(context: ToolContext) -> Any:
@@ -20,7 +20,8 @@ def step_goal(
     step_context: Optional[Dict[str, Any]] = None,
     user_message: Optional[str] = None,
     failure_reason: Optional[str] = None,
-    context: ToolContext = None,
+    *,
+    context: ToolContext,
 ) -> Dict[str, Any]:
     state_api = _require_state_api(context)
     if not context.task_id:

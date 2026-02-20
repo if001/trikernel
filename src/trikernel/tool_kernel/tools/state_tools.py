@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .models import ToolContext
+from ..models import ToolContext
 
 
 def _require_state_api(context: ToolContext) -> Any:
@@ -11,24 +11,30 @@ def _require_state_api(context: ToolContext) -> Any:
     return context.state_api
 
 
-def task_create(task_type: str, payload: Dict[str, Any], context: ToolContext) -> str:
+def task_create(
+    task_type: str, payload: Dict[str, Any], *, context: ToolContext
+) -> str:
     state_api = _require_state_api(context)
     return state_api.task_create(task_type, payload)
 
 
-def task_update(task_id: str, patch: Dict[str, Any], context: ToolContext) -> Optional[Dict[str, Any]]:
+def task_update(
+    task_id: str, patch: Dict[str, Any], *, context: ToolContext
+) -> Optional[Dict[str, Any]]:
     state_api = _require_state_api(context)
     task = state_api.task_update(task_id, patch)
     return task.to_dict() if task else None
 
 
-def task_get(task_id: str, context: ToolContext) -> Optional[Dict[str, Any]]:
+def task_get(task_id: str, *, context: ToolContext) -> Optional[Dict[str, Any]]:
     state_api = _require_state_api(context)
     task = state_api.task_get(task_id)
     return task.to_dict() if task else None
 
 
-def task_list(filter_by: Optional[Dict[str, Any]], context: ToolContext) -> List[Dict[str, Any]]:
+def task_list(
+    filter_by: Optional[Dict[str, Any]], *, context: ToolContext
+) -> List[Dict[str, Any]]:
     state_api = _require_state_api(context)
     return [task.to_dict() for task in state_api.task_list(filter_by)]
 
@@ -37,41 +43,54 @@ def task_claim(
     filter_by: Dict[str, Any],
     claimer_id: str,
     ttl_seconds: int,
+    *,
     context: ToolContext,
 ) -> Optional[str]:
     state_api = _require_state_api(context)
     return state_api.task_claim(filter_by, claimer_id, ttl_seconds)
 
 
-def task_complete(task_id: str, context: ToolContext) -> Optional[Dict[str, Any]]:
+def task_complete(
+    task_id: str, *, context: ToolContext
+) -> Optional[Dict[str, Any]]:
     state_api = _require_state_api(context)
     task = state_api.task_complete(task_id)
     return task.to_dict() if task else None
 
 
-def task_fail(task_id: str, error_info: Dict[str, Any], context: ToolContext) -> Optional[Dict[str, Any]]:
+def task_fail(
+    task_id: str, error_info: Dict[str, Any], *, context: ToolContext
+) -> Optional[Dict[str, Any]]:
     state_api = _require_state_api(context)
     task = state_api.task_fail(task_id, error_info)
     return task.to_dict() if task else None
 
 
-def artifact_write(media_type: str, body: str, metadata: Dict[str, Any], context: ToolContext) -> str:
+def artifact_write(
+    media_type: str, body: str, metadata: Dict[str, Any], *, context: ToolContext
+) -> str:
     state_api = _require_state_api(context)
     return state_api.artifact_write(media_type, body, metadata)
 
 
-def artifact_read(artifact_id: str, context: ToolContext) -> Optional[Dict[str, Any]]:
+def artifact_read(
+    artifact_id: str, *, context: ToolContext
+) -> Optional[Dict[str, Any]]:
     state_api = _require_state_api(context)
     artifact = state_api.artifact_read(artifact_id)
     return artifact.to_dict() if artifact else None
 
 
-def artifact_search(query: Dict[str, Any], context: ToolContext) -> List[Dict[str, Any]]:
+def artifact_search(
+    query: Dict[str, Any], *, context: ToolContext
+) -> List[Dict[str, Any]]:
     state_api = _require_state_api(context)
     return [artifact.to_dict() for artifact in state_api.artifact_search(query)]
 
 
-def turn_list_recent(conversation_id: str, limit: int, context: ToolContext) -> List[Dict[str, Any]]:
+def turn_list_recent(
+    conversation_id: str, limit: int, *, context: ToolContext
+) -> List[Dict[str, Any]]:
     state_api = _require_state_api(context)
     return [turn.to_dict() for turn in state_api.turn_list_recent(conversation_id, limit)]
 

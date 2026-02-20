@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 from typing import Callable, Dict, List, Optional
+from trikernel.utils.logging import get_logger
 
-from .logging import get_logger
-from .models import ToolContext
-from .protocols import ToolLLMAPI
+from ..models import ToolContext
+from ..protocols import ToolLLMAPI
 from .writing_prompts import (
     build_article_prompt,
     build_extract_prompt,
@@ -37,7 +37,8 @@ def summarize_text(
     max_length: Optional[int] = None,
     style: Optional[str] = None,
     language: Optional[str] = "ja",
-    context: ToolContext = None,
+    *,
+    context: ToolContext,
 ) -> Dict[str, object]:
     llm_api = _require_llm(context)
     prompt = build_summary_prompt(text, max_length, style, language)
@@ -50,7 +51,8 @@ def extract_corresponding(
     target_text: str,
     criteria: Optional[str] = None,
     language: Optional[str] = "ja",
-    context: ToolContext = None,
+    *,
+    context: ToolContext,
 ) -> Dict[str, object]:
     llm_api = _require_llm(context)
     prompt = build_extract_prompt(source_text, target_text, criteria, language)
@@ -64,7 +66,8 @@ def create_outline(
     article_type: Optional[str] = None,
     audience: Optional[str] = None,
     language: Optional[str] = "ja",
-    context: ToolContext = None,
+    *,
+    context: ToolContext,
 ) -> Dict[str, object]:
     llm_api = _require_llm(context)
     prompt = build_outline_prompt(
@@ -83,7 +86,8 @@ def polish_article(
     article_type: Optional[str] = None,
     audience: Optional[str] = None,
     language: Optional[str] = "ja",
-    context: ToolContext = None,
+    *,
+    context: ToolContext,
 ) -> Dict[str, object]:
     llm_api = _require_llm(context)
     prompt = build_polish_prompt(draft, article_type, audience, language)
@@ -98,7 +102,8 @@ def generate_article(
     outline: Optional[str] = None,
     draft: str = "",
     language: Optional[str] = "ja",
-    context: ToolContext = None,
+    *,
+    context: ToolContext,
 ) -> Dict[str, object]:
     llm_api = _require_llm(context)
     prompt = build_article_prompt(

@@ -4,8 +4,8 @@ from trikernel.tool_kernel.models import ToolContext, ToolDefinition
 from pathlib import Path
 
 from trikernel.tool_kernel.dsl import build_tools_from_dsl
-from trikernel.tool_kernel.state_tools import state_tool_functions
-from trikernel.tool_kernel.web_tools import web_list, web_page, web_query
+from trikernel.tool_kernel.tools.state_tools import state_tool_functions
+import json
 
 
 def add(x: int, y: int) -> int:
@@ -55,17 +55,31 @@ def test_build_tools_from_dsl(tmp_path):
     kernel = ToolKernel()
     dsl_dir = Path(__file__).resolve().parents[1] / "dsl"
     state_dsl = dsl_dir / "state_tools.yaml"
-    web_dsl = dsl_dir / "web_tools.yaml"
-    function_map = state_tool_functions()
-    function_map.update(
-        {
-            "web.query": web_query,
-            "web.list": web_list,
-            "web.page": web_page,
-        }
+    custom_dsl = tmp_path / "custom_tools.json"
+    custom_dsl.write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "tool_name": "demo.echo",
+                        "description": "Echo input text",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"text": {"type": "string"}},
+                            "required": ["text"],
+                        },
+                        "output_schema": {"type": "object", "properties": {}},
+                    }
+                ]
+            },
+            ensure_ascii=True,
+        ),
+        encoding="utf-8",
     )
+    function_map = state_tool_functions()
+    function_map["demo.echo"] = lambda text: {"text": text}
     tools = build_tools_from_dsl(state_dsl, function_map)
-    tools += build_tools_from_dsl(web_dsl, function_map)
+    tools += build_tools_from_dsl(custom_dsl, function_map)
     for tool in tools:
         kernel.tool_register_structured(tool)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 
-from .models import ToolContext
+from ..models import ToolContext
 
 USER_PROFILE_ARTIFACT_ID = "user_profile"
 USER_PROFILE_MEDIA_TYPE = "application/json"
@@ -33,7 +33,8 @@ def user_profile_save(
     attributes: Optional[str] = None,
     notes: Optional[str] = None,
     merge: bool = True,
-    context: ToolContext = None,
+    *,
+    context: ToolContext,
 ) -> Dict[str, Any]:
     state_api = _require_state_api(context)
     profile = _load_profile(context) if merge else {}
@@ -57,7 +58,7 @@ def user_profile_save(
     return {"status": "saved", "profile": profile}
 
 
-def user_profile_load(context: ToolContext = None) -> Dict[str, Any]:
+def user_profile_load(*, context: ToolContext) -> Dict[str, Any]:
     profile = _load_profile(context)
     return {"profile": profile}
 
