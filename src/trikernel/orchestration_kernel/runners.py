@@ -53,7 +53,9 @@ class SingleTurnRunner(Runner):
         tools = runner_context.tool_api.tool_structured_list()
         stream_chunks: List[str] = []
         if runner_context.stream and hasattr(runner_context.llm_api, "collect_stream"):
-            response, stream_chunks = runner_context.llm_api.collect_stream(llm_task, tools)
+            response, stream_chunks = runner_context.llm_api.collect_stream(
+                llm_task, tools
+            )
         else:
             response = runner_context.llm_api.generate(llm_task, tools)
 
@@ -187,7 +189,7 @@ class ToolLoopRunner(Runner):
                     step_context.facts.append(response.user_output)
             step_context.budget.spent_steps += 1
             step_context.budget.remaining_steps -= 1
-            logger.info(f"tool_results {tool_results}")
+
             if not tool_results:
                 return RunResult(
                     user_output=response.user_output,

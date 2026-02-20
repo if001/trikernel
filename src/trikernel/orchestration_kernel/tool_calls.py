@@ -7,6 +7,10 @@ from ..tool_kernel.models import ToolContext
 from .models import LLMToolCall, RunnerContext
 from .types import ToolResult
 
+from ..utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 def build_tool_context(runner_context: RunnerContext, task: Task) -> ToolContext:
     return ToolContext(
@@ -26,6 +30,7 @@ def execute_tool_calls(
 ) -> List[ToolResult]:
     tool_results: List[ToolResult] = []
     for call in tool_calls:
+        logger.info(f"tool run: {call.tool_name}")
         if allowed_tools is not None and call.tool_name not in allowed_tools:
             tool_results.append(
                 {
