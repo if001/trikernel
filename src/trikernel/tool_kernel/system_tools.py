@@ -34,6 +34,7 @@ def step_goal(
     payload = task.payload or {}
     fallback_goal = (
         payload.get("step_goal")
+        or payload.get("user_message")
         or payload.get("message")
         or payload.get("prompt")
         or user_message

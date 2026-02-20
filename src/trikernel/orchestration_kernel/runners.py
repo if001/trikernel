@@ -4,11 +4,11 @@ import json
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from langchain_core.messages import BaseMessage, HumanMessage
-from langchain_core.tools import StructuredTool
 
 from .models import Budget, LLMResponse, RunResult, RunnerContext, StepContext
 from .protocols import Runner
 from ..state_kernel.models import Task
+from ..tool_kernel.structured_tool import TrikernelStructuredTool
 from .logging import get_logger
 from .message_utils import (
     ensure_ai_message,
@@ -16,6 +16,7 @@ from .message_utils import (
     messages_to_history,
     tool_message_from_result,
 )
+from .payloads import build_llm_payload, extract_user_message
 from .prompts import (
     build_check_step_prompt,
     build_discover_tools_prompt,
@@ -33,15 +34,28 @@ logger = get_logger(__name__)
 
 class SingleTurnRunner(Runner):
     def run(self, task: Task, runner_context: RunnerContext) -> RunResult:
+        user_message = extract_user_message(task.payload or {})
         if runner_context.runner_id == "main":
             recent = runner_context.state_api.turn_list_recent("default", 5)
-            task.payload["history"] = [turn.to_dict() for turn in recent]
+            llm_task = Task(
+                task_id=task.task_id,
+                task_type=task.task_type,
+                payload=build_llm_payload(message=user_message, history=recent),
+                state="running",
+            )
+        else:
+            llm_task = Task(
+                task_id=task.task_id,
+                task_type=task.task_type,
+                payload=build_llm_payload(message=user_message),
+                state="running",
+            )
         tools = runner_context.tool_api.tool_structured_list()
         stream_chunks: List[str] = []
         if runner_context.stream and hasattr(runner_context.llm_api, "collect_stream"):
-            response, stream_chunks = runner_context.llm_api.collect_stream(task, tools)
+            response, stream_chunks = runner_context.llm_api.collect_stream(llm_task, tools)
         else:
-            response = runner_context.llm_api.generate(task, tools)
+            response = runner_context.llm_api.generate(llm_task, tools)
 
         tool_results = execute_tool_calls(
             runner_context, task, response.tool_calls, allowed_tools=None
@@ -221,7 +235,7 @@ def _plan_step(
     plan_task = Task(
         task_id=task.task_id,
         task_type="pdca.plan",
-        payload={"message": prompt},
+        payload=build_llm_payload(message=prompt),
         state="running",
     )
     response = runner_context.llm_api.generate(plan_task, [])
@@ -237,7 +251,7 @@ def _do_step(
     step_goal: str,
     step_success_criteria: str,
     runner_context: RunnerContext,
-    tools: Sequence[StructuredTool],
+    tools: Sequence[TrikernelStructuredTool],
     step_toolset: Set[str],
 ) -> Tuple[LLMResponse, List[ToolResult]]:
     allowed_tools = [tool for tool in tools if tool.name in step_toolset]
@@ -251,7 +265,7 @@ def _do_step(
     do_task = Task(
         task_id=task.task_id,
         task_type="pdca.do",
-        payload={"messages": messages},
+        payload=build_llm_payload(messages=messages),
         state="running",
     )
     response = runner_context.llm_api.generate(do_task, allowed_tools)
@@ -274,7 +288,7 @@ def _do_step(
     followup_task = Task(
         task_id=task.task_id,
         task_type="pdca.do.followup",
-        payload={"messages": messages},
+        payload=build_llm_payload(messages=messages),
         state="running",
     )
     followup_response = runner_context.llm_api.generate(followup_task, [])
@@ -287,11 +301,11 @@ def _tool_loop_step(
     step_context: StepContext,
     messages: List[BaseMessage],
     runner_context: RunnerContext,
-    tools: Sequence[StructuredTool],
+    tools: Sequence[TrikernelStructuredTool],
     step_toolset: Set[str],
 ) -> Tuple[LLMResponse, List[ToolResult]]:
     payload = task.payload or {}
-    user_message = payload.get("message") or payload.get("prompt") or ""
+    user_message = extract_user_message(payload)
     allowed_tools = [tool for tool in tools if tool.name in step_toolset]
     prompt = build_tool_loop_prompt(
         user_message=user_message,
@@ -301,7 +315,7 @@ def _tool_loop_step(
     do_task = Task(
         task_id=task.task_id,
         task_type="tool_loop.step",
-        payload={"messages": messages},
+        payload=build_llm_payload(messages=messages),
         state="running",
     )
     response = runner_context.llm_api.generate(do_task, allowed_tools)
@@ -322,7 +336,7 @@ def _tool_loop_step(
     followup_task = Task(
         task_id=task.task_id,
         task_type="tool_loop.followup",
-        payload={"messages": messages},
+        payload=build_llm_payload(messages=messages),
         state="running",
     )
     followup_response = runner_context.llm_api.generate(followup_task, [])
@@ -350,7 +364,7 @@ def _check_step(
     check_task = Task(
         task_id=task.task_id,
         task_type="pdca.check",
-        payload={"message": prompt},
+        payload=build_llm_payload(message=prompt),
         state="running",
     )
     response = runner_context.llm_api.generate(check_task, [])
@@ -389,7 +403,7 @@ def _discover_step_tools(
     step_goal: str,
     step_success_criteria: str,
     runner_context: RunnerContext,
-    tools: Sequence[StructuredTool],
+    tools: Sequence[TrikernelStructuredTool],
     messages: Sequence[BaseMessage],
     enforce_search: bool = False,
 ) -> Set[str]:
@@ -402,7 +416,7 @@ def _discover_step_tools(
     discover_task = Task(
         task_id=task.task_id,
         task_type="pdca.discover",
-        payload={"message": prompt},
+        payload=build_llm_payload(message=prompt),
         state="running",
     )
     response = runner_context.llm_api.generate(discover_task, tools)

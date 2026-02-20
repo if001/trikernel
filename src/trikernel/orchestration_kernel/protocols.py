@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Protocol, List, Tuple
-from langchain_core.tools import StructuredTool
+from typing import Protocol, List, Tuple
 
 from ..state_kernel.models import Task
+from ..tool_kernel.structured_tool import TrikernelStructuredTool
 
 from typing import TYPE_CHECKING
 
@@ -13,9 +13,9 @@ if TYPE_CHECKING:
 
 
 class LLMAPI(Protocol):
-    def generate(self, task: Task, tools: list[StructuredTool]) -> LLMResponse: ...
+    def generate(self, task: Task, tools: list[TrikernelStructuredTool]) -> LLMResponse: ...
     def collect_stream(
-        self, task: Task, tools: List[Any]
+        self, task: Task, tools: List[TrikernelStructuredTool]
     ) -> Tuple[LLMResponse, List[str]]: ...
 
 

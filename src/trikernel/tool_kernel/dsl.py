@@ -4,10 +4,9 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-from langchain_core.tools import StructuredTool
-
 from .langchain_tools import build_structured_tool
 from .models import ToolDefinition
+from .structured_tool import TrikernelStructuredTool
 
 
 def load_tool_definitions(path: Path) -> List[ToolDefinition]:
@@ -42,7 +41,7 @@ def load_tool_definitions(path: Path) -> List[ToolDefinition]:
 
 def build_tools_from_dsl(
     path: Path, function_map: Dict[str, Any]
-) -> List[StructuredTool]:
+) -> List[TrikernelStructuredTool]:
     definitions = load_tool_definitions(path)
     tools = []
     for definition in definitions:

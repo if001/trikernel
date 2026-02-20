@@ -3,7 +3,7 @@ from trikernel.state_kernel.kernel import StateKernel
 
 def test_task_lifecycle(tmp_path):
     state = StateKernel(data_dir=tmp_path)
-    task_id = state.task_create("user_request", {"message": "hi"})
+    task_id = state.task_create("user_request", {"user_message": "hi"})
     task = state.task_get(task_id)
     assert task is not None
     assert task.state == "queued"

@@ -1,5 +1,3 @@
-from langchain_core.tools import StructuredTool
-
 from .dsl import build_tools_from_dsl, load_tool_definitions
 from .kernel import ToolKernel
 from .models import ToolCall, ToolContext, ToolDefinition
@@ -10,6 +8,11 @@ from .state_tools import state_tool_functions
 from .system_tools import system_tool_functions
 from .writing_tools import writing_tool_functions
 from .user_profile_tools import user_profile_tool_functions
+from .structured_tool import (
+    LangchainStructuredToolAdapter,
+    TrikernelStructuredTool,
+    adapt_langchain_tool,
+)
 
 __all__ = [
     "ToolKernel",
@@ -19,8 +22,10 @@ __all__ = [
     "ToolOllamaLLM",
     "ToolAPI",
     "ToolLLMAPI",
-    "StructuredTool",
     "tool_descriptions",
+    "TrikernelStructuredTool",
+    "LangchainStructuredToolAdapter",
+    "adapt_langchain_tool",
     "register_default_tools",
     "load_tool_definitions",
     "build_tools_from_dsl",

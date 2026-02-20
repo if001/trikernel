@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import StructuredTool as LangchainStructuredTool
 
 from .config import OllamaConfig, load_ollama_config
 from .logging import get_logger
 from .models import LLMResponse, LLMToolCall
+from .payloads import extract_llm_input
 from ..state_kernel.models import Task
+from ..tool_kernel.structured_tool import TrikernelStructuredTool
 
 logger = get_logger(__name__)
 
@@ -32,16 +34,16 @@ class OllamaLLM:
             base_url=self.config.base_url,
         )
 
-    def generate(self, task: Task, tools: List[StructuredTool]) -> LLMResponse:
+    def generate(self, task: Task, tools: List[TrikernelStructuredTool]) -> LLMResponse:
         response = self._chat(task, tools, stream=False)
         self._last_response = response
         return response
 
-    def stream_chunks(self, task: Task, tools: List[StructuredTool]) -> Iterable[str]:
+    def stream_chunks(self, task: Task, tools: List[TrikernelStructuredTool]) -> Iterable[str]:
         return self._chat_stream(task, tools)
 
     def collect_stream(
-        self, task: Task, tools: List[Any]
+        self, task: Task, tools: List[TrikernelStructuredTool]
     ) -> Tuple[LLMResponse, List[str]]:
         chunks: List[str] = []
         for chunk in self.stream_chunks(task, tools):
@@ -50,24 +52,26 @@ class OllamaLLM:
         return response, chunks
 
     def _chat(
-        self, task: Task, tools: List[StructuredTool], stream: bool
+        self, task: Task, tools: List[TrikernelStructuredTool], stream: bool
     ) -> LLMResponse:
         self._logger.info("Ollama request model=%s stream=%s", self.model, stream)
         messages = _build_messages(task)
-        if tools:
-            llm_with_tools = self._client.bind_tools(tools)
+        langchain_tools = _to_langchain_tools(tools)
+        if langchain_tools:
+            llm_with_tools = self._client.bind_tools(langchain_tools)
             response = llm_with_tools.invoke(messages)
         else:
             response = self._client.invoke(messages)
         return _parse_response(response)
 
-    def _chat_stream(self, task: Task, tools: List[StructuredTool]) -> Iterable[str]:
+    def _chat_stream(self, task: Task, tools: List[TrikernelStructuredTool]) -> Iterable[str]:
         self._logger.info("Ollama stream model=%s", self.model)
         tool_calls: List[LLMToolCall] = []
         content_chunks: List[str] = []
         messages = _build_messages(task)
-        if tools:
-            llm_with_tools = self._client.bind_tools(tools)
+        langchain_tools = _to_langchain_tools(tools)
+        if langchain_tools:
+            llm_with_tools = self._client.bind_tools(langchain_tools)
             stream = llm_with_tools.stream(messages)
             llm_with_tools = self._client.bind_tools([])
         else:
@@ -86,9 +90,10 @@ class OllamaLLM:
 
 def _build_messages(task: Task) -> Sequence[BaseMessage]:
     payload = task.payload or {}
-    if "messages" in payload:
-        return payload["messages"]
-    history = payload.get("history") or []
+    llm_input = extract_llm_input(payload)
+    if "messages" in llm_input:
+        return llm_input["messages"]
+    history = llm_input.get("history") or []
     messages: List[HumanMessage | AIMessage] = []
     for turn in history:
         if isinstance(turn, (HumanMessage, AIMessage)):
@@ -102,12 +107,18 @@ def _build_messages(task: Task) -> Sequence[BaseMessage]:
             messages.append(AIMessage(content=assistant_message))
 
     message = (
-        payload.get("message")
-        or payload.get("prompt")
-        or json.dumps(payload, ensure_ascii=True)
+        llm_input.get("message")
+        or llm_input.get("prompt")
+        or json.dumps(llm_input, ensure_ascii=True)
     )
     messages.append(HumanMessage(content=message))
     return messages
+
+
+def _to_langchain_tools(
+    tools: Sequence[TrikernelStructuredTool],
+) -> List[LangchainStructuredTool]:
+    return [tool.as_langchain() for tool in tools]
 
 
 def _parse_response(message: AIMessage) -> LLMResponse:

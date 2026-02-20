@@ -31,7 +31,7 @@ if __name__ == "__main__":
     context = ToolContext(runner_id="example", task_id=None, state_api=state, now="now")
     task_id = kernel.tool_invoke(
         "task.create",
-        {"task_type": "user_request", "payload": {"message": "from dsl"}},
+        {"task_type": "user_request", "payload": {"user_message": "from dsl"}},
         tool_context=context,
     )
     print(f"created task {task_id}")

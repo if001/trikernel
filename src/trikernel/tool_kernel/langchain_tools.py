@@ -6,22 +6,24 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, create_model
 
 from .models import ToolDefinition
+from .structured_tool import TrikernelStructuredTool, adapt_langchain_tool
 
 
 def build_structured_tool(
     definition: ToolDefinition, handler: Any
-) -> StructuredTool:
+) -> TrikernelStructuredTool:
     args_schema = _build_args_schema(definition.tool_name, definition.input_schema)
-    return StructuredTool.from_function(
+    tool = StructuredTool.from_function(
         func=handler,
         name=definition.tool_name,
         description=definition.description,
         args_schema=args_schema,
     )
+    return adapt_langchain_tool(tool)
 
 
-def tool_definition_from_structured(tool: StructuredTool) -> ToolDefinition:
-    input_schema = _schema_from_tool(tool)
+def tool_definition_from_structured(tool: TrikernelStructuredTool) -> ToolDefinition:
+    input_schema = _schema_from_tool(tool.as_langchain())
     return ToolDefinition(
         tool_name=tool.name,
         description=tool.description or "",

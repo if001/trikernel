@@ -3,12 +3,13 @@ from __future__ import annotations
 from typing import Any, Dict, List, Protocol
 
 from .models import ToolContext, ToolDefinition
+from .structured_tool import TrikernelStructuredTool
 
 
 class ToolAPI(Protocol):
     def tool_register(self, tool_definition: ToolDefinition, handler: Any) -> None: ...
 
-    def tool_register_structured(self, tool: Any) -> None: ...
+    def tool_register_structured(self, tool: TrikernelStructuredTool) -> None: ...
 
     def tool_describe(self, tool_name: str) -> ToolDefinition: ...
 
@@ -22,7 +23,7 @@ class ToolAPI(Protocol):
 
     def tool_descriptions(self) -> List[Dict[str, Any]]: ...
 
-    def tool_structured_list(self) -> List[Any]: ...
+    def tool_structured_list(self) -> List[TrikernelStructuredTool]: ...
 
 
 class ToolLLMAPI(Protocol):

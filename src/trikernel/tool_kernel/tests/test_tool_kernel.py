@@ -44,7 +44,7 @@ def test_state_tools_task_create(tmp_path):
     context = ToolContext(runner_id="test", task_id=None, state_api=state, now="now")
     task_id = kernel.tool_invoke(
         "task.create",
-        {"task_type": "user_request", "payload": {"message": "hi"}},
+        {"task_type": "user_request", "payload": {"user_message": "hi"}},
         tool_context=context,
     )
     assert state.task_get(task_id) is not None
@@ -72,7 +72,7 @@ def test_build_tools_from_dsl(tmp_path):
     context = ToolContext(runner_id="test", task_id=None, state_api=state, now="now")
     task_id = kernel.tool_invoke(
         "task.create",
-        {"task_type": "user_request", "payload": {"message": "dsl"}},
+        {"task_type": "user_request", "payload": {"user_message": "dsl"}},
         tool_context=context,
     )
     assert state.task_get(task_id) is not None

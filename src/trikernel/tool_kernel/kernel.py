@@ -4,11 +4,10 @@ import inspect
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from langchain_core.tools import StructuredTool
-
 from .langchain_tools import build_structured_tool, tool_definition_from_structured
 from .models import ToolContext, ToolDefinition
 from .protocols import ToolAPI
+from .structured_tool import TrikernelStructuredTool, adapt_langchain_tool
 
 
 def _validate_input(schema: Dict[str, Any], args: Dict[str, Any]) -> None:
@@ -22,7 +21,7 @@ def _validate_input(schema: Dict[str, Any], args: Dict[str, Any]) -> None:
 class ToolEntry:
     definition: ToolDefinition
     handler: Any
-    structured_tool: StructuredTool
+    structured_tool: TrikernelStructuredTool
 
 
 class ToolKernel(ToolAPI):
@@ -40,13 +39,16 @@ class ToolKernel(ToolAPI):
             structured_tool=build_structured_tool(tool_definition, handler),
         )
 
-    def tool_register_structured(self, tool: StructuredTool) -> None:
-        definition = tool_definition_from_structured(tool)
-        handler = _extract_handler(tool)
+    def tool_register_structured(self, tool: TrikernelStructuredTool) -> None:
+        structured_tool = tool
+        if not hasattr(structured_tool, "as_langchain"):
+            structured_tool = adapt_langchain_tool(structured_tool)  # type: ignore[arg-type]
+        definition = tool_definition_from_structured(structured_tool)
+        handler = _extract_handler(structured_tool)
         self._tools[definition.tool_name] = ToolEntry(
             definition=definition,
             handler=handler,
-            structured_tool=tool,
+            structured_tool=structured_tool,
         )
 
     def tool_describe(self, tool_name: str) -> ToolDefinition:
@@ -87,18 +89,19 @@ class ToolKernel(ToolAPI):
             for tool in self.tool_list()
         ]
 
-    def tool_structured_list(self) -> List[StructuredTool]:
+    def tool_structured_list(self) -> List[TrikernelStructuredTool]:
         return [tool.structured_tool for tool in self._tools.values()]
 
 
-def _extract_handler(tool: StructuredTool) -> Optional[Any]:
-    handler = getattr(tool, "func", None)
+def _extract_handler(tool: TrikernelStructuredTool) -> Optional[Any]:
+    tool_impl = tool.as_langchain()
+    handler = getattr(tool_impl, "func", None)
     if handler:
         return handler
-    handler = getattr(tool, "coroutine", None)
+    handler = getattr(tool_impl, "coroutine", None)
     if handler:
         return handler
-    return getattr(tool, "_run", None)
+    return getattr(tool_impl, "_run", None)
 
 
 def _invoke_handler(handler: Any, args: Dict[str, Any], context: ToolContext) -> Any:
