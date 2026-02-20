@@ -59,7 +59,7 @@ class StepContext:
     open_issues: List[str] = field(default_factory=list)
     plan: List[str] = field(default_factory=list)
     last_result: str = ""
-    budget: Budget = field(default_factory=lambda: Budget(remaining_steps=3))
+    budget: Budget = field(default_factory=lambda: Budget(remaining_steps=5))
 
     def to_dict(self) -> Dict[str, Any]:
         return {

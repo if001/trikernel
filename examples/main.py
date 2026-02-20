@@ -7,7 +7,7 @@ from trikernel.orchestration_kernel import (
     PDCARunner,
     ToolLoopRunner,
 )
-from trikernel.api.session import TrikernelSession
+from trikernel.execution.session import TrikernelSession
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel
 from trikernel.tool_kernel.ollama import ToolOllamaLLM

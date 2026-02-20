@@ -4,7 +4,8 @@ import asyncio
 import os
 from dotenv import load_dotenv
 
-from ui.discord_client_ui import DiscordBot, get_intents, new_bot
+
+from ui.discord_client_ui import DiscordBot, get_intents
 from trikernel.orchestration_kernel import (
     OllamaLLM,
     SingleTurnRunner,
@@ -12,12 +13,15 @@ from trikernel.orchestration_kernel import (
     ToolLoopRunner,
     get_logger,
 )
-from trikernel.api.session import TrikernelSession
+from trikernel.execution.session import TrikernelSession
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel
 from trikernel.tool_kernel.ollama import ToolOllamaLLM
 from trikernel.tool_kernel.registry import register_default_tools
 
+from pathlib import Path
+
+from trikernel.tool_kernel.dsl import build_tools_from_dsl
 
 logger = get_logger("discord_client")
 load_dotenv()
@@ -32,6 +36,20 @@ DISCORD_READ_CHANNEL_ID = int(os.getenv("DISCORD_READ_CHANNEL_ID", -1))
 # Messages in this channel enqueue work tasks.
 
 
+from tools.web_tools import web_list, web_page, web_query
+
+
+def build_web_tools():
+    dsl_path = Path(__file__).resolve().parent / "tools" / "web_tools.yaml"
+    function_map = {
+        "web.query": web_query,
+        "web.list": web_list,
+        "web.page": web_page,
+    }
+    tools = build_tools_from_dsl(dsl_path, function_map)
+    return tools
+
+
 async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
     logger.info("runner_loop")
     llm = OllamaLLM()
@@ -39,23 +57,35 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
     state = StateKernel()
     tool_kernel = ToolKernel()
     register_default_tools(tool_kernel)
+
+    tools = build_web_tools()
+    for tool in tools:
+        tool_kernel.tool_register_structured(tool)
+
     session = TrikernelSession(state, tool_kernel, runner, llm, tool_llm)
     session.start_workers()
 
     try:
         while not ui.stop_event.is_set():
-            for message in session.drain_notifications():
-                await ui.write_output(message, channel_id=DISCORD_CHANNEL_ID)
+            for notice in session.drain_notifications():
+                text = notice.get("message") if isinstance(notice, dict) else notice
+                meta = notice.get("meta") if isinstance(notice, dict) else {}
+                channel_id = meta.get("channel_id") if isinstance(meta, dict) else None
+                await ui.write_output(
+                    text or "", channel_id=channel_id or DISCORD_CHANNEL_ID
+                )
             channel_id, user_input = await ui.read_input()
             if not user_input:
                 break
             if channel_id == DISCORD_READ_CHANNEL_ID:
+                logger.info("create_task")
                 task_id = session.create_work_task(
                     {
                         "message": (
                             f"{user_input}\n"
                             "urlを読んで、内容を要約し、artifactとして保存し、内容をユーザーに通知してください。"
                         ),
+                        "meta": {"channel_id": channel_id},
                     }
                 )
                 await ui.write_output(
@@ -63,7 +93,9 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
                 )
                 continue
             async with ui.typing():
-                result = await asyncio.to_thread(session.send_message, user_input, False)
+                result = await asyncio.to_thread(
+                    session.send_message, user_input, False
+                )
             if result.stream_chunks:
                 logger.error("not support")
             else:

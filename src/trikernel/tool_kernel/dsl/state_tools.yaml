@@ -2,15 +2,46 @@ tools:
   - tool_name: task.create
     description: Create a task. Use task_type=work for long-running background jobs handled by worker threads; use user_request/notification for main flow.
     input_schema:
-      type: object
-      properties:
-        task_type:
-          type: string
-          description: Task type. Use work for background tasks; user_request/notification for main flow.
-        payload:
-          type: object
-          description: Task-specific payload (arbitrary JSON).
-      required: [task_type, payload]
+      oneOf:
+        - type: object
+          properties:
+            task_type:
+              const: user_request
+              description: Task type for user request.
+            payload:
+              type: object
+              properties:
+                user_message:
+                  type: string
+                  description: User message text.
+              required: [user_message]
+          required: [task_type, payload]
+        - type: object
+          properties:
+            task_type:
+              const: work
+              description: Task type for background worker processing.
+            payload:
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: Work instruction message for the worker.
+              required: [message]
+          required: [task_type, payload]
+        - type: object
+          properties:
+            task_type:
+              const: notification
+              description: Notification task for main flow.
+            payload:
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: Notification message to deliver.
+              required: [message]
+          required: [task_type, payload]
     output_schema:
       type: string
   - tool_name: task.update

@@ -1,11 +1,11 @@
 import asyncio
 from typing import Iterable
 
-from trikernel.composition.ui import TerminalUI
+from ui.terminal import TerminalUI
 from trikernel.orchestration_kernel.models import LLMResponse
 from trikernel.orchestration_kernel.payloads import extract_llm_input
 from trikernel.orchestration_kernel.runners import SingleTurnRunner
-from trikernel.api.session import TrikernelSession
+from trikernel.execution.session import TrikernelSession
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel
 

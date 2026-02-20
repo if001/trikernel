@@ -1,6 +1,6 @@
-from trikernel.composition.ui import TerminalUI
+from ui.terminal import TerminalUI
 from trikernel.orchestration_kernel import OllamaLLM, SingleTurnRunner
-from trikernel.api.session import TrikernelSession
+from trikernel.execution.session import TrikernelSession
 from trikernel.tool_kernel.ollama import ToolOllamaLLM
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel

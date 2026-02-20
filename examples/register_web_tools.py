@@ -9,10 +9,7 @@ from trikernel.tool_kernel.registry import register_default_tools
 from tools.web_tools import web_list, web_page, web_query
 
 
-def main() -> None:
-    kernel = ToolKernel()
-    register_default_tools(kernel)
-
+def build_web_tools():
     dsl_path = Path(__file__).resolve().parent / "tools" / "web_tools.yaml"
     function_map = {
         "web.query": web_query,
@@ -20,6 +17,14 @@ def main() -> None:
         "web.page": web_page,
     }
     tools = build_tools_from_dsl(dsl_path, function_map)
+    return tools
+
+
+def main() -> None:
+    kernel = ToolKernel()
+    register_default_tools(kernel)
+
+    tools = build_web_tools()
     for tool in tools:
         kernel.tool_register_structured(tool)
 

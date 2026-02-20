@@ -11,6 +11,7 @@ class WorkSender(Protocol):
 @runtime_checkable
 class WorkReceiver(Protocol):
     async def recv_json(self) -> dict[str, Any]: ...
+    async def try_recv_json(self) -> dict[str, Any] | None: ...
 
 
 @runtime_checkable
@@ -21,6 +22,7 @@ class ResultSender(Protocol):
 @runtime_checkable
 class ResultReceiver(Protocol):
     async def recv_json(self) -> dict[str, Any]: ...
+    async def try_recv_json(self) -> dict[str, Any] | None: ...
 
 
 class ZmqWorkSender(WorkSender):
@@ -38,6 +40,16 @@ class ZmqWorkReceiver(WorkReceiver):
     async def recv_json(self) -> dict[str, Any]:
         return await self._socket.recv_json()
 
+    async def try_recv_json(self) -> dict[str, Any] | None:
+        try:
+            import zmq  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError("pyzmq is required for the execution layer") from exc
+        try:
+            return await self._socket.recv_json(flags=zmq.NOBLOCK)
+        except Exception:
+            return None
+
 
 class ZmqResultSender(ResultSender):
     def __init__(self, endpoint: str) -> None:
@@ -54,13 +66,23 @@ class ZmqResultReceiver(ResultReceiver):
     async def recv_json(self) -> dict[str, Any]:
         return await self._socket.recv_json()
 
+    async def try_recv_json(self) -> dict[str, Any] | None:
+        try:
+            import zmq  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError("pyzmq is required for the execution layer") from exc
+        try:
+            return await self._socket.recv_json(flags=zmq.NOBLOCK)
+        except Exception:
+            return None
+
 
 def _create_socket(endpoint: str, *, bind: bool, socket_type: str):
     try:
         import zmq  # type: ignore
         import zmq.asyncio  # type: ignore
     except ImportError as exc:
-        raise RuntimeError("pyzmq is required for the composition layer") from exc
+        raise RuntimeError("pyzmq is required for the execution layer") from exc
     context = zmq.asyncio.Context.instance()
     socket = context.socket(getattr(zmq, socket_type))
     if bind:

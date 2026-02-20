@@ -224,7 +224,7 @@ class ToolLoopRunner(Runner):
             logger.error("Step budget exceeded.")
             tool_messages.append(
                 ToolMessage(
-                    content='{"error":"上限に達したためtool使用をストップしました。ここまでのtoolの結果を利用してください。","code":"BUDGET_EXCEEDED"}',
+                    content='{"error":"上限に達したためtool使用をストップしました。ここまでのtoolの結果を利用し、調査が足りていない旨を含めて回答してください。","code":"BUDGET_EXCEEDED"}',
                     tool_call_id="system",
                 )
             )

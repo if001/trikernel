@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import threading
 import asyncio
-from typing import Dict, List, Optional, Union, Any
+import threading
+from typing import Any, Dict, List, Optional, Union
 
-from ..composition.runtime import CompositionRuntime, CompositionConfig
+from trikernel.utils.logging import get_logger
+
+from .dispatcher import DispatchConfig, WorkDispatcher
+from .worker import WorkWorker
+from .loop import ExecutionLoop, LoopConfig
 from ..orchestration_kernel.models import RunResult, RunnerContext
 from ..orchestration_kernel.protocols import LLMAPI, Runner
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI
 from ..tool_kernel.protocols import ToolAPI, ToolLLMAPI
 from .payloads import UserRequestPayload, WorkPayload
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -43,10 +49,12 @@ class TrikernelSession:
         self._conversation_id = conversation_id
         self._runner_id = runner_id
         self._claim_ttl_seconds = claim_ttl_seconds
-        self._runtime: Optional[CompositionRuntime] = None
         self._runtime_loop: Optional[asyncio.AbstractEventLoop] = None
         self._runtime_thread: Optional[threading.Thread] = None
-        self._runtime_task: Optional[asyncio.Task] = None
+        self._dispatcher: Optional[WorkDispatcher] = None
+        self._worker: Optional[WorkWorker] = None
+        self._loop: Optional[ExecutionLoop] = None
+        self._loop_task: Optional[asyncio.Task] = None
 
     def send_message(self, message: str, stream: bool = False) -> MessageResult:
         task_id = self._state_api.task_create(
@@ -126,43 +134,51 @@ class TrikernelSession:
         return task_id
 
     def start_workers(
-        self, config: Optional[CompositionConfig] = None
+        self,
+        dispatch_config: Optional[DispatchConfig] = None,
+        loop_config: Optional[LoopConfig] = None,
     ) -> None:
         if self._runtime_thread and self._runtime_thread.is_alive():
+            logger.info("already start...")
             return
-        self._runtime = CompositionRuntime(
+        logger.info("start worker")
+        self._dispatcher = WorkDispatcher(self._state_api, config=dispatch_config)
+        self._worker = WorkWorker(
             state_api=self._state_api,
             tool_api=self._tool_api,
             runner=self._runner,
             llm_api=self._llm_api,
             tool_llm_api=self._tool_llm_api,
-            config=config,
         )
+        self._loop = ExecutionLoop(self._dispatcher, self._worker, loop_config)
 
         def _run() -> None:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             self._runtime_loop = loop
-            self._runtime_task = loop.create_task(self._runtime.start())
+            self._loop_task = loop.create_task(self._loop.run_forever())
             loop.run_forever()
 
         self._runtime_thread = threading.Thread(target=_run, daemon=True)
         self._runtime_thread.start()
 
     def stop_workers(self) -> None:
-        if not self._runtime or not self._runtime_loop:
+        if not self._runtime_loop:
             return
-        future = asyncio.run_coroutine_threadsafe(
-            self._runtime.stop(), self._runtime_loop
-        )
-        future.result(timeout=5)
+        for task in (self._loop_task,):
+            if task:
+                task.cancel()
         self._runtime_loop.call_soon_threadsafe(self._runtime_loop.stop)
         if self._runtime_thread:
             self._runtime_thread.join(timeout=5)
-        self._runtime = None
         self._runtime_loop = None
         self._runtime_thread = None
-        self._runtime_task = None
+        if self._loop:
+            self._loop.stop()
+        self._dispatcher = None
+        self._worker = None
+        self._loop = None
+        self._loop_task = None
 
     def _run_task(self, task: Task, stream: bool) -> RunResult:
         context = RunnerContext(
