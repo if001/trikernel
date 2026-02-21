@@ -40,7 +40,7 @@ def test_dispatch_respects_run_at(tmp_path):
     )
     task_id = state.task_create("work", {"message": "do"})
     future = datetime.now(timezone.utc) + timedelta(hours=1)
-    state.task_update(task_id, {"run_at": future.isoformat()})
+    state.task_update(task_id, {"payload": {"run_at": future.isoformat()}})
 
     asyncio.run(dispatcher.run_once())
     assert dispatcher._pending == []
@@ -66,10 +66,17 @@ def test_send_pending_tracks_inflight(tmp_path):
 
 def test_receive_results_finalize_task(tmp_path):
     state = StateKernel(data_dir=tmp_path)
+    dispatcher = WorkDispatcher(
+        state_api=state,
+        work_sender=FakeSender(),
+        result_receiver=FakeReceiver([]),
+        config=DispatchConfig(),
+    )
+    task_id = state.task_create("work", {"message": "do"})
     receiver = FakeReceiver(
         [
             {
-                "task_id": "t1",
+                "task_id": task_id,
                 "task_state": "done",
                 "user_output": "ok",
                 "artifact_refs": [],
@@ -77,13 +84,7 @@ def test_receive_results_finalize_task(tmp_path):
             }
         ]
     )
-    dispatcher = WorkDispatcher(
-        state_api=state,
-        work_sender=FakeSender(),
-        result_receiver=receiver,
-        config=DispatchConfig(),
-    )
-    task_id = state.task_create("work", {"message": "do"})
+    dispatcher._result_receiver = receiver
     dispatcher._inflight[task_id] = time.monotonic()
     asyncio.run(dispatcher._receive_worker_results())
     task = state.task_get(task_id)

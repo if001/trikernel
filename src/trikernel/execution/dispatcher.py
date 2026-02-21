@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from trikernel.utils.logging import get_logger
@@ -64,7 +64,7 @@ class WorkDispatcher:
                 continue
             if self._is_already_tracked(task.task_id):
                 continue
-            run_at = _parse_run_at(task)
+            run_at = _parse_run_at(task.payload or {})
             if run_at is None:
                 continue
             if run_at > now:
@@ -126,11 +126,17 @@ class WorkDispatcher:
     def _finalize_task(self, task: Task, payload: dict) -> None:
         task_state = payload.get("task_state") or "failed"
         if task_state == "done":
-            self.state_api.task_complete(task.task_id)
-        else:
-            self.state_api.task_fail(
-                task.task_id, payload.get("error") or {"message": "failed"}
-            )
+            if _is_recurring(task.payload or {}):
+                self._reschedule_task(task)
+            else:
+                self.state_api.task_complete(task.task_id)
+            return
+        self.state_api.task_fail(
+            task.task_id, payload.get("error") or {"message": "failed"}
+        )
+
+    def _reschedule_task(self, task: Task) -> None:
+        self.state_api.task_update(task.task_id, _reschedule_patch(task.payload or {}))
 
     def _fail_timed_out_tasks(self) -> None:
         if self.config.worker_timeout_seconds <= 0:
@@ -180,8 +186,8 @@ class WorkDispatcher:
         return any(entry.task_id == task_id for entry in self._pending)
 
 
-def _parse_run_at(task: Task) -> Optional[datetime]:
-    run_at = task.run_at
+def _parse_run_at(payload: dict) -> Optional[datetime]:
+    run_at = payload.get("run_at")
     if not run_at:
         return datetime.min.replace(tzinfo=timezone.utc)
     try:
@@ -191,3 +197,29 @@ def _parse_run_at(task: Task) -> Optional[datetime]:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _is_recurring(payload: dict) -> bool:
+    return bool(payload.get("repeat_enabled") and payload.get("repeat_interval_seconds"))
+
+
+def _clamp_repeat_interval(seconds: int) -> int:
+    return max(3600, seconds)
+
+
+def _next_run_at(interval_seconds: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=interval_seconds)).isoformat()
+
+
+def _reschedule_patch(payload: dict) -> dict:
+    interval = _clamp_repeat_interval(int(payload.get("repeat_interval_seconds") or 0))
+    return {
+        "state": "queued",
+        "claimed_by": None,
+        "claim_expires_at": None,
+        "payload": {
+            "run_at": _next_run_at(interval),
+            "repeat_interval_seconds": interval,
+            "repeat_enabled": True,
+        },
+    }

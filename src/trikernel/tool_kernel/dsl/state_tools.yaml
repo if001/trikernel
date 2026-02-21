@@ -27,6 +27,15 @@ tools:
                 message:
                   type: string
                   description: Work instruction message for the worker.
+                run_at:
+                  type: string
+                  description: Optional ISO8601 timestamp to schedule the work.
+                repeat_interval_seconds:
+                  type: integer
+                  description: Optional repeat interval in seconds (minimum 3600).
+                repeat_enabled:
+                  type: boolean
+                  description: Whether recurring execution is enabled.
               required: [message]
           required: [task_type, payload]
         - type: object

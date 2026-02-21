@@ -39,7 +39,6 @@ class Task:
     artifact_refs: List[str] = field(default_factory=list)
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
-    run_at: Optional[str] = None
     claimed_by: Optional[str] = None
     claim_expires_at: Optional[str] = None
 
@@ -52,7 +51,6 @@ class Task:
             "artifact_refs": list(self.artifact_refs),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-            "run_at": self.run_at,
             "claimed_by": self.claimed_by,
             "claim_expires_at": self.claim_expires_at,
         }
@@ -67,7 +65,6 @@ class Task:
             artifact_refs=list(data.get("artifact_refs", [])),
             created_at=data.get("created_at", utc_now()),
             updated_at=data.get("updated_at", utc_now()),
-            run_at=data.get("run_at"),
             claimed_by=data.get("claimed_by"),
             claim_expires_at=data.get("claim_expires_at"),
         )

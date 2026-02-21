@@ -124,13 +124,24 @@ class TrikernelSession:
         self,
         payload: Union[WorkPayload, Dict[str, Any]],
         run_at: Optional[str] = None,
+        repeat_every_seconds: Optional[int] = None,
+        repeat_enabled: bool = False,
     ) -> str:
         payload_dict = (
             payload.to_dict() if isinstance(payload, WorkPayload) else payload
         )
         task_id = self._state_api.task_create("work", payload_dict)
+        patch: Dict[str, Any] = {}
         if run_at:
-            self._state_api.task_update(task_id, {"run_at": run_at})
+            patch["run_at"] = run_at
+        if repeat_every_seconds is not None:
+            repeat_seconds = max(3600, int(repeat_every_seconds))
+            patch["repeat_interval_seconds"] = repeat_seconds
+            patch["repeat_enabled"] = bool(repeat_enabled)
+        elif repeat_enabled:
+            patch["repeat_enabled"] = True
+        if patch:
+            self._state_api.task_update(task_id, patch)
         return task_id
 
     def start_workers(
