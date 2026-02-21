@@ -6,7 +6,7 @@ from trikernel.tool_kernel.dsl import build_tools_from_dsl
 from trikernel.tool_kernel.kernel import ToolKernel
 from trikernel.tool_kernel.registry import register_default_tools
 
-from tools.web_tools import web_list, web_page, web_query
+from tools.web_tools import web_list, web_page, web_page_ref, web_query
 
 
 def build_web_tools():
@@ -15,6 +15,7 @@ def build_web_tools():
         "web.query": web_query,
         "web.list": web_list,
         "web.page": web_page,
+        "web.page_ref": web_page_ref,
     }
     tools = build_tools_from_dsl(dsl_path, function_map)
     return tools

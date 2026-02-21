@@ -84,6 +84,28 @@ def artifact_read(
     return artifact.to_dict() if artifact else None
 
 
+def artifact_extract(
+    artifact_id: str,
+    instructions: str,
+    *,
+    context: ToolContext,
+) -> Dict[str, Any]:
+    state_api = _require_state_api(context)
+    artifact = state_api.artifact_read(artifact_id)
+    if not artifact:
+        return {"error": "artifact_not_found"}
+    if not context.llm_api:
+        return {"error": "llm_api_required"}
+    prompt = (
+        "Extract the requested information from the artifact content.\n"
+        f"Instructions: {instructions}\n"
+        f"Artifact content: {artifact.body}\n"
+        "Return only the extracted result."
+    )
+    extracted = context.llm_api.generate(prompt, [])
+    return {"artifact_id": artifact_id, "result": extracted}
+
+
 def artifact_search(
     query: Dict[str, Any], *, context: ToolContext
 ) -> List[Dict[str, Any]]:
@@ -109,6 +131,7 @@ def state_tool_functions() -> Dict[str, Any]:
         "task.fail": task_fail,
         "artifact.write": artifact_write,
         "artifact.read": artifact_read,
+        "artifact.extract": artifact_extract,
         "artifact.search": artifact_search,
         "turn.list_recent": turn_list_recent,
     }

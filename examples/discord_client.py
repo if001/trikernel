@@ -36,7 +36,7 @@ DISCORD_READ_CHANNEL_ID = int(os.getenv("DISCORD_READ_CHANNEL_ID", -1))
 # Messages in this channel enqueue work tasks.
 
 
-from tools.web_tools import web_list, web_page, web_query
+from tools.web_tools import web_list, web_page, web_page_ref, web_query
 
 
 def build_web_tools():
@@ -45,6 +45,7 @@ def build_web_tools():
         "web.query": web_query,
         "web.list": web_list,
         "web.page": web_page,
+        "web.page_ref": web_page_ref,
     }
     tools = build_tools_from_dsl(dsl_path, function_map)
     return tools
@@ -67,6 +68,7 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
 
     try:
         while not ui.stop_event.is_set():
+            logger.info(f"run_wait")
             for notice in session.drain_notifications():
                 text = notice.get("message") if isinstance(notice, dict) else notice
                 meta = notice.get("meta") if isinstance(notice, dict) else {}
@@ -75,6 +77,7 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
                     text or "", channel_id=channel_id or DISCORD_CHANNEL_ID
                 )
             channel_id, user_input = await ui.read_input()
+            logger.info(f"read: {channel_id}")
             if not user_input:
                 break
             if channel_id == DISCORD_READ_CHANNEL_ID:
@@ -100,6 +103,8 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
                 logger.error("not support")
             else:
                 await ui.write_output(result.message or "", channel_id=channel_id)
+    except Exception as e:
+        logger.error(f"error {e}")
     finally:
         session.stop_workers()
 

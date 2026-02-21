@@ -26,7 +26,17 @@ tools:
     output_schema:
       type: object
   - tool_name: web.page
-    description: Fetch page content by URL
+    description: Fetch page content by URL(do not use this, use web.page_ref instead.)
+    input_schema:
+      type: object
+      properties:
+        urls:
+          type: string
+      required: [urls]
+    output_schema:
+      type: object
+  - tool_name: web.page_ref
+    description: Fetch page content by URL and store as an artifact, returning the artifact id
     input_schema:
       type: object
       properties:

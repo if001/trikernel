@@ -142,7 +142,7 @@ tools:
     output_schema:
       type: string
   - tool_name: artifact.read
-    description: Read a stored artifact by id (use after artifact.search).
+    description: Read a stored artifact by id and return the full content. Prefer artifact.extract when you only need specific information.
     input_schema:
       type: object
       properties:
@@ -173,6 +173,20 @@ tools:
       required: [query]
     output_schema:
       type: array
+  - tool_name: artifact.extract
+    description: Extract specific information from an artifact using LLM. Prefer this over artifact.read for large content.
+    input_schema:
+      type: object
+      properties:
+        artifact_id:
+          type: string
+          description: Artifact id to extract from.
+        instructions:
+          type: string
+          description: What information to extract.
+      required: [artifact_id, instructions]
+    output_schema:
+      type: object
   - tool_name: turn.list_recent
     description: List recent conversation turns
     input_schema:

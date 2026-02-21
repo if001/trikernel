@@ -59,6 +59,17 @@ def web_page(urls: str, *, context: ToolContext) -> Dict[str, Any]:
     return _post_json(f"{config.base_url}/page", payload)
 
 
+def web_page_ref(urls: str, *, context: ToolContext) -> Dict[str, Any]:
+    state_api = _require_state_api(context)
+    response = web_page(urls, context=context)
+    artifact_id = state_api.artifact_write(
+        "application/json",
+        json.dumps(response, ensure_ascii=False),
+        {"source": "web.page", "urls": urls},
+    )
+    return {"artifact_id": artifact_id}
+
+
 def _build_query_messages(
     user_message: str, history: List[Any]
 ) -> List[Dict[str, str]]:
@@ -102,4 +113,5 @@ def web_tool_functions() -> Dict[str, Any]:
         "web.query": web_query,
         "web.list": web_list,
         "web.page": web_page,
+        "web.page_ref": web_page_ref,
     }
