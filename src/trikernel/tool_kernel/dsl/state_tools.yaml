@@ -20,7 +20,7 @@ tools:
           properties:
             task_type:
               const: work
-              description: Task type for background worker processing.
+              description: Task type for background worker processing. For example, use it to run a task in 5 minutes or run a task every 2 hours.
             payload:
               type: object
               properties:
@@ -29,10 +29,10 @@ tools:
                   description: Work instruction message for the worker.
                 run_at:
                   type: string
-                  description: Optional ISO8601 timestamp to schedule the work.
+                  description: If this field is set, the task will be executed at the specified time. ISO8601 timestamp format.
                 repeat_interval_seconds:
                   type: integer
-                  description: Optional repeat interval in seconds (minimum 3600).
+                  description: If this field is set, the task will repeat at intervals. (minimum 3600).
                 repeat_enabled:
                   type: boolean
                   description: Whether recurring execution is enabled.

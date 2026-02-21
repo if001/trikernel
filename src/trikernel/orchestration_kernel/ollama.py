@@ -7,6 +7,8 @@ from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
 from langchain_core.tools import StructuredTool as LangchainStructuredTool
 
+from trikernel.orchestration_kernel.protocols import LLMAPI
+
 from .config import OllamaConfig, load_ollama_config
 from .logging import get_logger
 from .models import LLMResponse, LLMToolCall
@@ -17,7 +19,7 @@ from ..tool_kernel.structured_tool import TrikernelStructuredTool
 logger = get_logger(__name__)
 
 
-class OllamaLLM:
+class OllamaLLM(LLMAPI):
     def __init__(
         self,
         config: Optional[OllamaConfig] = None,
@@ -39,7 +41,9 @@ class OllamaLLM:
         self._last_response = response
         return response
 
-    def stream_chunks(self, task: Task, tools: List[TrikernelStructuredTool]) -> Iterable[str]:
+    def stream_chunks(
+        self, task: Task, tools: List[TrikernelStructuredTool]
+    ) -> Iterable[str]:
         return self._chat_stream(task, tools)
 
     def collect_stream(
@@ -64,7 +68,9 @@ class OllamaLLM:
             response = self._client.invoke(messages)
         return _parse_response(response)
 
-    def _chat_stream(self, task: Task, tools: List[TrikernelStructuredTool]) -> Iterable[str]:
+    def _chat_stream(
+        self, task: Task, tools: List[TrikernelStructuredTool]
+    ) -> Iterable[str]:
         self._logger.info("Ollama stream model=%s", self.model)
         tool_calls: List[LLMToolCall] = []
         content_chunks: List[str] = []
@@ -93,19 +99,7 @@ def _build_messages(task: Task) -> Sequence[BaseMessage]:
     llm_input = extract_llm_input(payload)
     if "messages" in llm_input:
         return llm_input["messages"]
-    history = llm_input.get("history") or []
     messages: List[HumanMessage | AIMessage] = []
-    for turn in history:
-        if isinstance(turn, (HumanMessage, AIMessage)):
-            messages.append(turn)
-            continue
-        user_message = turn.get("user_message")
-        assistant_message = turn.get("assistant_message")
-        if user_message:
-            messages.append(HumanMessage(content=user_message))
-        if assistant_message:
-            messages.append(AIMessage(content=assistant_message))
-
     message = (
         llm_input.get("message")
         or llm_input.get("prompt")

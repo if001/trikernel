@@ -14,14 +14,8 @@ from .langchain_tools import build_structured_tool, tool_definition_from_structu
 from .models import ToolContext, ToolDefinition
 from .protocols import ToolAPI
 from .structured_tool import TrikernelStructuredTool, adapt_langchain_tool
+from .validation import validate_input
 from ..utils.search import HybridSearchIndex
-
-
-def _validate_input(schema: Dict[str, Any], args: Dict[str, Any]) -> None:
-    required = schema.get("required", [])
-    missing = [key for key in required if key not in args]
-    if missing:
-        raise ValueError(f"Missing required args: {missing}")
 
 
 @dataclass
@@ -92,7 +86,7 @@ class ToolKernel(ToolAPI):
         self, tool_name: str, args: Dict[str, Any], tool_context: ToolContext
     ) -> Any:
         entry = self._tools[tool_name]
-        _validate_input(entry.definition.input_schema, args)
+        validate_input(entry.definition.input_schema, args)
         if entry.handler:
             return _invoke_handler(entry.handler, args, tool_context)
         return entry.structured_tool.invoke(args)

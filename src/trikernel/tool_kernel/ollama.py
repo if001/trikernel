@@ -5,11 +5,14 @@ from typing import Any, List, Optional
 from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, HumanMessage
 
+from trikernel.tool_kernel.protocols import ToolLLMAPI
+
+
 from .config import OllamaConfig, load_ollama_config
 from .logging import get_logger
 
 
-class ToolOllamaLLM:
+class ToolOllamaLLM(ToolLLMAPI):
     def __init__(
         self,
         config: Optional[OllamaConfig] = None,

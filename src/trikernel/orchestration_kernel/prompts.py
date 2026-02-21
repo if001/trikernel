@@ -80,14 +80,14 @@ def build_tool_loop_prompt(
 def build_tool_loop_prompt_simple(
     user_message: str,
     step_context: Dict[str, Any],
-    history: List[Dict[str, Any]],
 ) -> str:
     prompt = (
         "You are completing a task step using tools when needed.\n"
-        "Responses to users must be in Japanese. Do not output internal terminology as-is.\n"
-        f"あなたはワークスペースとして{work_space_dir}以下のディレクトリやファイルにtoolを利用してアクセス可能です。\n\n"
-        "If you need previous outputs, use artifact.search to find ids and "
-        "artifact.read to load them.\n"
+        "If you did not select a tool, please compile the tool results obtained thus far as the information necessary to provide a response to the user.\n"
+        "Do not output internal terminology as-is.\n"
+        f"You can access the following directories and files as your workspace[{work_space_dir}] using Tool.\n"
+        "If you need previous outputs, use artifact.search to find ids and artifact.read to load them.\n"
+        "If you need to run a task that takes a long time, execute a task in 5 minutes, or repeat a task every 2 hours, you can create the task with `task_type=work` to run it as a background task.\n\n"
         f"User input: {user_message}\n"
         f"Step context: {json.dumps(step_context, ensure_ascii=False)}\n"
     )
@@ -167,7 +167,6 @@ def build_discover_tools_simple_prompt(
     user_input: str,
     tools_text: str,
     step_context: Dict[str, Any],
-    history: List[Dict[str, Any]],
 ) -> str:
     return (
         "# Role\n"
@@ -186,6 +185,5 @@ def build_discover_tools_simple_prompt(
         "# Input Data\n"
         f"User Input: {user_input}\n"
         f"Step context: {json.dumps(step_context, ensure_ascii=False)}\n"
-        f"Recent turns: {json.dumps(history, ensure_ascii=False)}\n"
         f"Available Tool Overview: {tools_text}\n"
     )

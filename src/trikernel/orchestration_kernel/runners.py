@@ -45,21 +45,17 @@ class SingleTurnRunner(Runner):
                 error={"code": "MISSING_MESSAGE", "message": "message is required"},
                 stream_chunks=[],
             )
+        messages: List[BaseMessage] = []
         if runner_context.runner_id == "main":
             recent = runner_context.state_api.turn_list_recent("default", 5)
-            llm_task = Task(
-                task_id=task.task_id,
-                task_type=task.task_type,
-                payload=build_llm_payload(message=user_message, history=recent),
-                state="running",
-            )
-        else:
-            llm_task = Task(
-                task_id=task.task_id,
-                task_type=task.task_type,
-                payload=build_llm_payload(message=user_message),
-                state="running",
-            )
+            messages.extend(history_to_messages(recent))
+        messages.append(HumanMessage(content=user_message))
+        llm_task = Task(
+            task_id=task.task_id,
+            task_type=task.task_type,
+            payload=build_llm_payload(messages=messages),
+            state="running",
+        )
         tools = runner_context.tool_api.tool_structured_list()
         stream_chunks: List[str] = []
         if runner_context.stream and hasattr(runner_context.llm_api, "collect_stream"):
@@ -178,10 +174,11 @@ class ToolLoopRunner(Runner):
         history = []
         if runner_context.runner_id == "main":
             history = runner_context.state_api.turn_list_recent("default", 5)
-        base_messages = history_to_messages(history)
+        history_messages = history_to_messages(history)
         tool_messages: List[BaseMessage] = []
         tools = runner_context.tool_api.tool_structured_list()
-        if not extract_user_message(task.payload or {}):
+        user_message = extract_user_message(task.payload or {})
+        if not user_message:
             return RunResult(
                 user_output=None,
                 task_state="failed",
@@ -195,13 +192,15 @@ class ToolLoopRunner(Runner):
                 task,
                 step_context,
                 runner_context,
-                base_messages + tool_messages,
+                user_message,
+                history_messages + tool_messages,
             )
             logger.info(f"step_toolset: {step_toolset}")
             response, tool_results = _tool_loop_step(
                 task,
                 step_context,
-                base_messages,
+                user_message,
+                history_messages,
                 tool_messages,
                 runner_context,
                 tools,
@@ -229,7 +228,7 @@ class ToolLoopRunner(Runner):
         final_response = _tool_loop_finalize(
             task,
             step_context,
-            base_messages,
+            history_messages,
             tool_messages,
             runner_context,
         )
@@ -343,19 +342,17 @@ def _do_step(
 def _tool_loop_step(
     task: Task,
     step_context: StepContext,
+    user_message: str,
     base_messages: List[BaseMessage],
     tool_messages: List[BaseMessage],
     runner_context: RunnerContext,
     tools: Sequence[TrikernelStructuredTool],
     step_toolset: Set[str],
 ) -> Tuple[LLMResponse, List[ToolResult]]:
-    payload = task.payload or {}
-    user_message = extract_user_message(payload)
     allowed_tools = [tool for tool in tools if tool.name in step_toolset]
     prompt = build_tool_loop_prompt_simple(
         user_message=user_message,
         step_context=step_context.to_dict(),
-        history=messages_to_history(base_messages + tool_messages),
     )
     messages = (
         list(base_messages) + [HumanMessage(content=prompt)] + list(tool_messages)
@@ -455,25 +452,23 @@ def _discover_step_tools_simple(
     task: Task,
     step_context: StepContext,
     runner_context: RunnerContext,
+    user_input: str,
     messages: Sequence[BaseMessage],
 ) -> Set[str]:
     tools_text = "tool_list:"
     for v in runner_context.tool_api.tool_descriptions():
-        tools_text += f"{v['tool_name']}: v['description']\n"
-
-    payload = task.payload or {}
-    user_input = extract_user_message(payload)
+        tools_text += f"{v['tool_name']}: {v['description']}\n"
 
     prompt = build_discover_tools_simple_prompt(
         user_input=user_input,
         tools_text=tools_text,
         step_context=step_context.to_dict(),
-        history=messages_to_history(messages),
     )
+    discover_messages = list(messages) + [HumanMessage(content=prompt)]
     discover_task = Task(
         task_id=task.task_id,
         task_type="pdca.discover",
-        payload=build_llm_payload(message=prompt),
+        payload=build_llm_payload(messages=discover_messages),
         state="running",
     )
 
