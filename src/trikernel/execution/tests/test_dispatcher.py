@@ -114,3 +114,45 @@ def test_fail_timed_out_pending(tmp_path):
     task = state.task_get(task_id)
     assert task is not None
     assert task.state == "failed"
+
+
+def test_fail_worker_timeout(tmp_path):
+    state = StateKernel(data_dir=tmp_path)
+    dispatcher = WorkDispatcher(
+        state_api=state,
+        work_sender=FakeSender(),
+        result_receiver=FakeReceiver([]),
+        config=DispatchConfig(worker_timeout_seconds=1),
+    )
+    task_id = state.task_create("work", {"message": "do"})
+    dispatcher._inflight[task_id] = time.monotonic() - 5
+
+    dispatcher._fail_timed_out_tasks()
+
+    task = state.task_get(task_id)
+    assert task is not None
+    assert task.state == "failed"
+
+
+def test_fail_expired_queued_tasks(tmp_path):
+    state = StateKernel(data_dir=tmp_path)
+    dispatcher = WorkDispatcher(
+        state_api=state,
+        work_sender=FakeSender(),
+        result_receiver=FakeReceiver([]),
+        config=DispatchConfig(queued_timeout_seconds=1),
+    )
+    old_time = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    user_task = state.task_create("user_request", {"user_message": "hi"})
+    notification_task = state.task_create("notification", {"message": "ping"})
+    state.task_update(user_task, {"created_at": old_time})
+    state.task_update(notification_task, {"created_at": old_time})
+
+    dispatcher._fail_expired_queued_tasks()
+
+    user_task_obj = state.task_get(user_task)
+    notification_obj = state.task_get(notification_task)
+    assert user_task_obj is not None
+    assert notification_obj is not None
+    assert user_task_obj.state == "failed"
+    assert notification_obj.state == "failed"

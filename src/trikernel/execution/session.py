@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import asyncio
+import concurrent.futures
+from datetime import datetime, timedelta, timezone
 import threading
 from typing import Any, Dict, List, Optional, Union
 
@@ -40,6 +42,7 @@ class TrikernelSession:
         conversation_id: str = "default",
         runner_id: str = "main",
         claim_ttl_seconds: int = 30,
+        main_runner_timeout_seconds: int = 60 * 10,
     ) -> None:
         self._state_api = state_api
         self._tool_api = tool_api
@@ -49,6 +52,7 @@ class TrikernelSession:
         self._conversation_id = conversation_id
         self._runner_id = runner_id
         self._claim_ttl_seconds = claim_ttl_seconds
+        self._main_runner_timeout_seconds = main_runner_timeout_seconds
         self._runtime_loop: Optional[asyncio.AbstractEventLoop] = None
         self._runtime_thread: Optional[threading.Thread] = None
         self._dispatcher: Optional[WorkDispatcher] = None
@@ -68,6 +72,10 @@ class TrikernelSession:
         )
         if not claimed_id:
             logger.error("failed to claim task: %s", task_id)
+            self._state_api.task_fail(
+                task_id,
+                {"code": "CLAIM_FAILED", "message": "Failed to claim task."},
+            )
             return MessageResult(
                 message=None,
                 task_state="failed",
@@ -78,6 +86,10 @@ class TrikernelSession:
         task = self._state_api.task_get(claimed_id)
         if not task:
             logger.error("failed to load task: %s", claimed_id)
+            self._state_api.task_fail(
+                claimed_id,
+                {"code": "TASK_NOT_FOUND", "message": "Failed to load task."},
+            )
             return MessageResult(
                 message=None,
                 task_state="failed",
@@ -85,7 +97,7 @@ class TrikernelSession:
                 error={"message": "Failed to load task."},
                 stream_chunks=[],
             )
-        result = self._run_task(task, stream=stream)
+        result = self._run_task_with_timeout(task, stream=stream)
         assistant_message = result.user_output or ""
         if result.stream_chunks:
             assistant_message = "".join(result.stream_chunks) or assistant_message
@@ -132,19 +144,16 @@ class TrikernelSession:
         payload_dict = (
             payload.to_dict() if isinstance(payload, WorkPayload) else payload
         )
-        task_id = self._state_api.task_create("work", payload_dict)
-        patch: Dict[str, Any] = {}
         if run_at:
-            patch["run_at"] = run_at
+            _validate_run_at(run_at)
+            payload_dict["run_at"] = run_at
         if repeat_every_seconds is not None:
             repeat_seconds = max(3600, int(repeat_every_seconds))
-            patch["repeat_interval_seconds"] = repeat_seconds
-            patch["repeat_enabled"] = bool(repeat_enabled)
+            payload_dict["repeat_interval_seconds"] = repeat_seconds
+            payload_dict["repeat_enabled"] = bool(repeat_enabled)
         elif repeat_enabled:
-            patch["repeat_enabled"] = True
-        if patch:
-            self._state_api.task_update(task_id, patch)
-        return task_id
+            payload_dict["repeat_enabled"] = True
+        return self._state_api.task_create("work", payload_dict)
 
     def start_workers(
         self,
@@ -212,6 +221,22 @@ class TrikernelSession:
                 error={"code": "RUNNER_EXCEPTION", "message": "Runner failed."},
             )
 
+    def _run_task_with_timeout(self, task: Task, stream: bool) -> RunResult:
+        timeout_seconds = self._main_runner_timeout_seconds
+        if timeout_seconds <= 0:
+            return self._run_task(task, stream=stream)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(self._run_task, task, stream)
+            try:
+                return future.result(timeout=timeout_seconds)
+            except concurrent.futures.TimeoutError:
+                logger.error("main runner timeout: %s", task.task_id)
+                return RunResult(
+                    user_output=None,
+                    task_state="failed",
+                    error={"code": "MAIN_TIMEOUT", "message": "Runner timeout."},
+                )
+
     def _finalize_task(self, task: Task, result: RunResult) -> None:
         if result.task_state == "done":
             self._state_api.task_complete(task.task_id)
@@ -219,3 +244,17 @@ class TrikernelSession:
             self._state_api.task_fail(
                 task.task_id, result.error or {"message": "failed"}
             )
+
+
+def _validate_run_at(run_at: str) -> None:
+    try:
+        parsed = datetime.fromisoformat(run_at)
+    except ValueError as exc:
+        raise ValueError("run_at must be ISO8601 format") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if parsed < now:
+        raise ValueError("run_at must be in the future")
+    if parsed > now + timedelta(days=365):
+        raise ValueError("run_at must be within 1 year")

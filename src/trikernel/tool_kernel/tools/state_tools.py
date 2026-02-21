@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from ..models import ToolContext
@@ -14,6 +15,10 @@ def _require_state_api(context: ToolContext) -> Any:
 def task_create(
     task_type: str, payload: Dict[str, Any], *, context: ToolContext
 ) -> str:
+    if task_type == "work":
+        run_at = payload.get("run_at")
+        if run_at:
+            _validate_run_at(str(run_at))
     state_api = _require_state_api(context)
     return state_api.task_create(task_type, payload)
 
@@ -152,3 +157,17 @@ def state_tool_functions() -> Dict[str, Any]:
         "artifact.list": artifact_list,
         "turn.list_recent": turn_list_recent,
     }
+
+
+def _validate_run_at(run_at: str) -> None:
+    try:
+        parsed = datetime.fromisoformat(run_at)
+    except ValueError as exc:
+        raise ValueError("run_at must be ISO8601 format") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if parsed < now:
+        raise ValueError("run_at must be in the future")
+    if parsed > now + timedelta(days=365):
+        raise ValueError("run_at must be within 1 year")

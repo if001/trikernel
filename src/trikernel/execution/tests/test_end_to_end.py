@@ -59,6 +59,11 @@ class DummyRunner(Runner):
         return RunResult(user_output="done", task_state="done")
 
 
+class FailingRunner(Runner):
+    def run(self, task, runner_context):
+        raise RuntimeError("boom")
+
+
 def test_work_task_end_to_end(tmp_path):
     state = StateKernel(data_dir=tmp_path)
     work_channel = InMemoryChannel()
@@ -91,3 +96,34 @@ def test_work_task_end_to_end(tmp_path):
     notifications = state.task_list(task_type="notification", state=None)
     assert notifications
     assert notifications[0].payload.get("meta", {}).get("channel_id") == 1
+
+
+def test_work_task_failure_marks_failed(tmp_path):
+    state = StateKernel(data_dir=tmp_path)
+    work_channel = InMemoryChannel()
+    result_channel = InMemoryChannel()
+    dispatcher = WorkDispatcher(
+        state_api=state,
+        work_sender=work_channel,
+        result_receiver=result_channel,
+        config=DispatchConfig(worker_count=1, poll_interval=0),
+    )
+    worker = WorkWorker(
+        state_api=state,
+        tool_api=DummyToolAPI(),
+        runner=FailingRunner(),
+        llm_api=None,
+        tool_llm_api=None,
+        work_receiver=work_channel,
+        result_sender=result_channel,
+    )
+
+    task_id = state.task_create("work", {"message": "do"})
+
+    asyncio.run(dispatcher.run_once())
+    asyncio.run(worker.run_once())
+    asyncio.run(dispatcher.run_once())
+
+    task = state.task_get(task_id)
+    assert task is not None
+    assert task.state == "failed"

@@ -7,7 +7,7 @@ from typing import Dict, List, Optional
 
 from trikernel.utils.logging import get_logger
 
-from ..state_kernel.models import Task
+from ..state_kernel.models import Task, parse_time
 from ..state_kernel.protocols import StateKernelAPI
 from .transports import ResultReceiver, WorkSender, ZmqResultReceiver, ZmqWorkSender
 
@@ -23,6 +23,7 @@ class DispatchConfig:
     zmq_result_endpoint: str = "inproc://trikernel-work-results"
     worker_timeout_seconds: float = 60 * 10
     work_queue_timeout_seconds: float = 60 * 30
+    queued_timeout_seconds: float = 60 * 60 * 24
 
 
 @dataclass
@@ -55,6 +56,7 @@ class WorkDispatcher:
         await self._receive_worker_results()
         self._fail_timed_out_pending()
         self._fail_timed_out_tasks()
+        self._fail_expired_queued_tasks()
 
     async def _dispatch_work_tasks(self) -> None:
         tasks = self.state_api.task_list(task_type="work", state="queued")
@@ -188,6 +190,23 @@ class WorkDispatcher:
             return True
         return any(entry.task_id == task_id for entry in self._pending)
 
+    def _fail_expired_queued_tasks(self) -> None:
+        timeout_seconds = _clamp_queued_timeout(self.config.queued_timeout_seconds)
+        if timeout_seconds <= 0:
+            return
+        now = datetime.now(timezone.utc)
+        for task in self.state_api.task_list(state="queued"):
+            created_at = parse_time(task.created_at)
+            if not created_at:
+                continue
+            if (now - created_at).total_seconds() <= timeout_seconds:
+                continue
+            self.state_api.task_fail(
+                task.task_id,
+                {"code": "QUEUED_TIMEOUT", "message": "Queued task expired."},
+            )
+            logger.error("queued task expired: %s", task.task_id)
+
 
 def _parse_run_at(payload: dict) -> Optional[datetime]:
     run_at = payload.get("run_at")
@@ -212,6 +231,10 @@ def _clamp_repeat_interval(seconds: int) -> int:
 
 def _next_run_at(interval_seconds: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=interval_seconds)).isoformat()
+
+
+def _clamp_queued_timeout(seconds: float) -> float:
+    return min(60 * 60 * 24, max(0, seconds))
 
 
 def _reschedule_patch(payload: dict) -> dict:

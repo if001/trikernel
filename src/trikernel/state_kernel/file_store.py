@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from langchain_ollama import OllamaEmbeddings
 from langchain_core.documents import Document
 
-from .models import Artifact, Task, Turn, parse_time, utc_now
+from .models import Artifact, Task, TaskType, Turn, parse_time, utc_now
 from ..utils.search import HybridSearchIndex
 
 
@@ -46,7 +46,7 @@ class JsonFileTaskStore:
             json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
-    def create(self, task_type: str, payload: Dict[str, Any]) -> Task:
+    def create(self, task_type: TaskType, payload: Dict[str, Any]) -> Task:
         with self._lock:
             data = self._read_all()
             task_id = str(uuid4())

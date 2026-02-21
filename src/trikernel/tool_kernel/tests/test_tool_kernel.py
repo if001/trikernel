@@ -6,6 +6,7 @@ from pathlib import Path
 from trikernel.tool_kernel.dsl import build_tools_from_dsl
 from trikernel.tool_kernel.tools.state_tools import state_tool_functions
 import json
+import pytest
 
 
 def add(x: int, y: int) -> int:
@@ -48,6 +49,24 @@ def test_state_tools_task_create(tmp_path):
         tool_context=context,
     )
     assert state.task_get(task_id) is not None
+
+
+def test_task_create_missing_required_raises(tmp_path):
+    state = StateKernel(data_dir=tmp_path)
+    kernel = ToolKernel()
+    for tool in build_tools_from_dsl(
+        Path(__file__).resolve().parents[1] / "dsl" / "state_tools.yaml",
+        state_tool_functions(),
+    ):
+        kernel.tool_register_structured(tool)
+
+    context = ToolContext(runner_id="test", task_id=None, state_api=state, now="now")
+    with pytest.raises(ValueError):
+        kernel.tool_invoke(
+            "task.create",
+            {"task_type": "user_request", "payload": {}},
+            tool_context=context,
+        )
 
 
 def test_build_tools_from_dsl(tmp_path):
