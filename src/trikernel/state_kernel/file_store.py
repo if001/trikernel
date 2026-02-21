@@ -197,6 +197,10 @@ class JsonFileArtifactStore:
         with self._lock:
             return self._search_locked(query)
 
+    def list(self) -> List[Artifact]:
+        with self._lock:
+            return self._all_artifacts()
+
     def _artifact_path(self, artifact_id: str) -> Path:
         return self._artifact_dir / f"{artifact_id}.json"
 

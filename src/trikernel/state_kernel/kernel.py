@@ -68,6 +68,9 @@ class StateKernel(StateKernelAPI):
             artifact_id, media_type, body, metadata
         ).artifact_id
 
+    def artifact_list(self) -> List[Artifact]:
+        return list(self._artifact_store.list())
+
     def artifact_search(self, query: Dict[str, Any]) -> List[Artifact]:
         return list(self._artifact_store.search(query))
 

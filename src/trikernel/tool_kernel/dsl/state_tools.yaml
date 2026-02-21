@@ -125,7 +125,7 @@ tools:
     output_schema:
       type: object
   - tool_name: artifact.write
-    description: Store an artifact (e.g., detailed output, logs, or references) and return its id for later retrieval.
+    description: Store an artifact (e.g., detailed output, logs, or references) and return its id for later retrieval. web検索など外部の知識を利用した場合、artifactとして保存するようにします。
     input_schema:
       type: object
       properties:
@@ -171,6 +171,13 @@ tools:
               type: object
               description: Exact-match metadata filter.
       required: [query]
+    output_schema:
+      type: array
+  - tool_name: artifact.list
+    description: List artifacts with metadata and a short body preview.
+    input_schema:
+      type: object
+      properties: {}
     output_schema:
       type: array
   - tool_name: artifact.extract

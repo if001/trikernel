@@ -113,6 +113,22 @@ def artifact_search(
     return [artifact.to_dict() for artifact in state_api.artifact_search(query)]
 
 
+def artifact_list(*, context: ToolContext) -> List[Dict[str, Any]]:
+    state_api = _require_state_api(context)
+    artifacts = state_api.artifact_list()
+    result = []
+    for artifact in artifacts:
+        result.append(
+            {
+                "artifact_id": artifact.artifact_id,
+                "metadata": dict(artifact.metadata),
+                "created_at": artifact.created_at,
+                "body": artifact.body[:100],
+            }
+        )
+    return result
+
+
 def turn_list_recent(
     conversation_id: str, limit: int, *, context: ToolContext
 ) -> List[Dict[str, Any]]:
@@ -133,5 +149,6 @@ def state_tool_functions() -> Dict[str, Any]:
         "artifact.read": artifact_read,
         "artifact.extract": artifact_extract,
         "artifact.search": artifact_search,
+        "artifact.list": artifact_list,
         "turn.list_recent": turn_list_recent,
     }
