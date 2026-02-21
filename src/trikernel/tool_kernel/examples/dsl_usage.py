@@ -15,7 +15,7 @@ if __name__ == "__main__":
     function_map = state_tool_functions()
     tools = build_tools_from_dsl(state_dsl, function_map)
     for tool in tools:
-        kernel.tool_register_structured(tool)
+        kernel.tool_register(tool.definition, tool.handler)
 
     context = ToolContext(runner_id="example", task_id=None, state_api=state, now="now")
     task_id = kernel.tool_invoke(

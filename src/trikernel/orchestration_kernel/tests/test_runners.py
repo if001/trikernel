@@ -13,7 +13,7 @@ class DummyToolAPI(ToolAPI):
     def tool_register(self, tool_definition, handler) -> None:
         return None
 
-    def tool_register_structured(self, tool) -> None:
+    def tool_register_structured(self, tool_definition, tool) -> None:
         return None
 
     def tool_describe(self, tool_name):

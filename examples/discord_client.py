@@ -61,7 +61,7 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
 
     tools = build_web_tools()
     for tool in tools:
-        tool_kernel.tool_register_structured(tool)
+        tool_kernel.tool_register(tool.definition, tool.handler)
 
     session = TrikernelSession(state, tool_kernel, runner, llm, tool_llm)
     session.start_workers()

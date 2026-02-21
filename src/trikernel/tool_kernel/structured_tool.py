@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from langchain_core.tools import StructuredTool as LangchainStructuredTool
+from langchain_core.tools import ArgsSchema, StructuredTool as LangchainStructuredTool
 
 
 class TrikernelStructuredTool(Protocol):
     name: str
     description: str
+    args_schema: ArgsSchema | dict[str, Any]
 
     def invoke(self, args: dict[str, Any]) -> Any: ...
 
@@ -26,6 +27,10 @@ class LangchainStructuredToolAdapter:
     @property
     def description(self) -> str:
         return self.tool.description or ""
+
+    @property
+    def args_schema(self) -> ArgsSchema | dict[str, Any]:
+        return self.tool.args_schema or {}
 
     def invoke(self, args: dict[str, Any]) -> Any:
         return self.tool.invoke(args)

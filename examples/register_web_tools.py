@@ -27,7 +27,7 @@ def main() -> None:
 
     tools = build_web_tools()
     for tool in tools:
-        kernel.tool_register_structured(tool)
+        kernel.tool_register(tool.definition, tool.handler)
 
     print("Registered web tools:", [tool.tool_name for tool in kernel.tool_list()])
 

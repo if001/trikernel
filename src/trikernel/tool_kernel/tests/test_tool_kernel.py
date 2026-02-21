@@ -5,6 +5,7 @@ from pathlib import Path
 
 from trikernel.tool_kernel.dsl import build_tools_from_dsl
 from trikernel.tool_kernel.tools.state_tools import state_tool_functions
+from trikernel.tool_kernel.langchain_tools import build_structured_tool
 import json
 import pytest
 
@@ -40,7 +41,7 @@ def test_state_tools_task_create(tmp_path):
         Path(__file__).resolve().parents[1] / "dsl" / "state_tools.yaml",
         state_tool_functions(),
     ):
-        kernel.tool_register_structured(tool)
+        kernel.tool_register(tool.definition, tool.handler)
 
     context = ToolContext(runner_id="test", task_id=None, state_api=state, now="now")
     task_id = kernel.tool_invoke(
@@ -58,7 +59,7 @@ def test_task_create_missing_required_raises(tmp_path):
         Path(__file__).resolve().parents[1] / "dsl" / "state_tools.yaml",
         state_tool_functions(),
     ):
-        kernel.tool_register_structured(tool)
+        kernel.tool_register(tool.definition, tool.handler)
 
     context = ToolContext(runner_id="test", task_id=None, state_api=state, now="now")
     with pytest.raises(ValueError):
@@ -100,7 +101,7 @@ def test_build_tools_from_dsl(tmp_path):
     tools = build_tools_from_dsl(state_dsl, function_map)
     tools += build_tools_from_dsl(custom_dsl, function_map)
     for tool in tools:
-        kernel.tool_register_structured(tool)
+        kernel.tool_register(tool.definition, tool.handler)
 
     context = ToolContext(runner_id="test", task_id=None, state_api=state, now="now")
     task_id = kernel.tool_invoke(
@@ -109,3 +110,31 @@ def test_build_tools_from_dsl(tmp_path):
         tool_context=context,
     )
     assert state.task_get(task_id) is not None
+
+
+def test_structured_tool_adapter_preserves_args_schema():
+    def demo_tool(x: int, y: int = 0) -> int:
+        return x + y
+
+    definition = ToolDefinition(
+        tool_name="demo.add",
+        description="Add two numbers",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer"},
+                "y": {"type": "integer"},
+            },
+            "required": ["x"],
+        },
+        output_schema={"type": "object", "properties": {}},
+        effects=[],
+    )
+    structured = build_structured_tool(definition, demo_tool)
+    langchain_tool = structured.as_langchain()
+    schema = langchain_tool.args_schema.model_json_schema()
+    required = schema.get("required") or []
+    properties = schema.get("properties") or {}
+    assert "x" in required
+    assert "x" in properties
+    assert "y" in properties

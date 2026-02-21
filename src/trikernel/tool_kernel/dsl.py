@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .langchain_tools import build_structured_tool
 from .models import ToolDefinition
-from .structured_tool import TrikernelStructuredTool
+@dataclass(frozen=True)
+class ToolRegistration:
+    definition: ToolDefinition
+    handler: Any
 
 
 def load_tool_definitions(path: Path) -> List[ToolDefinition]:
@@ -41,10 +44,10 @@ def load_tool_definitions(path: Path) -> List[ToolDefinition]:
 
 def build_tools_from_dsl(
     path: Path, function_map: Dict[str, Any]
-) -> List[TrikernelStructuredTool]:
+) -> List[ToolRegistration]:
     definitions = load_tool_definitions(path)
     tools = []
     for definition in definitions:
         handler = function_map[definition.tool_name]
-        tools.append(build_structured_tool(definition, handler))
+        tools.append(ToolRegistration(definition=definition, handler=handler))
     return tools

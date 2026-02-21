@@ -41,7 +41,7 @@ def main() -> None:
 
     tools = build_web_tools()
     for tool in tools:
-        tool_kernel.tool_register_structured(tool)
+        tool_kernel.tool_register(tool.definition, tool.handler)
     for v in tool_kernel.tool_descriptions():
         print(v)
 

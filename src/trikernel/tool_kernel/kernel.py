@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from langchain_ollama import OllamaEmbeddings
 from langchain_core.documents import Document
 
-from .langchain_tools import build_structured_tool, tool_definition_from_structured
+from .langchain_tools import build_structured_tool
 from .models import ToolContext, ToolDefinition
 from .protocols import ToolAPI
 from .structured_tool import TrikernelStructuredTool, adapt_langchain_tool
@@ -21,8 +21,8 @@ from ..utils.search import HybridSearchIndex
 @dataclass
 class ToolEntry:
     definition: ToolDefinition
-    handler: Any
-    structured_tool: TrikernelStructuredTool
+    handler: Optional[Any]
+    structured_tool: Optional[TrikernelStructuredTool]
 
 
 class ToolKernel(ToolAPI):
@@ -40,22 +40,23 @@ class ToolKernel(ToolAPI):
         self._tools[tool_definition.tool_name] = ToolEntry(
             definition=tool_definition,
             handler=handler,
-            structured_tool=build_structured_tool(tool_definition, handler),
+            structured_tool=None,
         )
         self._index_tool(tool_definition, force=False)
 
-    def tool_register_structured(self, tool: TrikernelStructuredTool) -> None:
+    def tool_register_structured(
+        self, tool_definition: ToolDefinition, tool: TrikernelStructuredTool
+    ) -> None:
         structured_tool = tool
         if not hasattr(structured_tool, "as_langchain"):
             structured_tool = adapt_langchain_tool(structured_tool)  # type: ignore[arg-type]
-        definition = tool_definition_from_structured(structured_tool)
         handler = _extract_handler(structured_tool)
-        self._tools[definition.tool_name] = ToolEntry(
-            definition=definition,
+        self._tools[tool_definition.tool_name] = ToolEntry(
+            definition=tool_definition,
             handler=handler,
             structured_tool=structured_tool,
         )
-        self._index_tool(definition, force=False)
+        self._index_tool(tool_definition, force=False)
 
     def tool_describe(self, tool_name: str) -> ToolDefinition:
         return self._tools[tool_name].definition
@@ -89,7 +90,9 @@ class ToolKernel(ToolAPI):
         validate_input(entry.definition.input_schema, args)
         if entry.handler:
             return _invoke_handler(entry.handler, args, tool_context)
-        return entry.structured_tool.invoke(args)
+        if entry.structured_tool:
+            return entry.structured_tool.invoke(args)
+        raise ValueError(f"Tool '{tool_name}' has no handler.")
 
     def tool_list(self) -> List[ToolDefinition]:
         return [tool.definition for tool in self._tools.values()]
@@ -107,7 +110,15 @@ class ToolKernel(ToolAPI):
         ]
 
     def tool_structured_list(self) -> List[TrikernelStructuredTool]:
-        return [tool.structured_tool for tool in self._tools.values()]
+        tools: List[TrikernelStructuredTool] = []
+        for entry in self._tools.values():
+            structured = entry.structured_tool
+            if structured is None and entry.handler:
+                structured = build_structured_tool(entry.definition, entry.handler)
+                entry.structured_tool = structured
+            if structured:
+                tools.append(structured)
+        return tools
 
     def _index_tool(self, definition: ToolDefinition, *, force: bool = False) -> None:
         metadata = {"tool_name": definition.tool_name}

@@ -29,4 +29,4 @@ def register_default_tools(kernel: ToolKernel) -> None:
     tools += build_tools_from_dsl(profile_dsl, profile_tool_map)
     tools += build_tools_from_dsl(file_dsl, file_tool_map)
     for tool in tools:
-        kernel.tool_register_structured(tool)
+        kernel.tool_register(tool.definition, tool.handler)
