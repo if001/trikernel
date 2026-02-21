@@ -79,7 +79,7 @@ def build_tool_loop_prompt(
 
 def build_tool_loop_prompt_simple(
     user_message: str,
-    step_context: Dict[str, Any],
+    step_context_text: str,
 ) -> str:
     prompt = (
         "You are completing a task step using tools when needed.\n"
@@ -89,7 +89,7 @@ def build_tool_loop_prompt_simple(
         "If you need previous outputs, use artifact.search to find ids and artifact.read to load them.\n"
         "If you need to run a task that takes a long time, execute a task in 5 minutes, or repeat a task every 2 hours, you can create the task with `task_type=work` to run it as a background task.\n\n"
         f"User input: {user_message}\n"
-        f"Step context: {json.dumps(step_context, ensure_ascii=False)}\n"
+        f"Step context: {step_context_text}\n"
     )
     return prompt
 
@@ -103,7 +103,7 @@ PERSONA = """- 一人称: 僕
 
 def build_tool_loop_followup_prompt(
     user_message: str,
-    step_context: Dict[str, Any],
+    step_context_text: str,
 ) -> str:
     prompt = (
         "あなたは「アオ」という名前の誠実で専門的なアシスタントです。\n"
@@ -119,7 +119,7 @@ def build_tool_loop_followup_prompt(
         "### 人格/性格\n"
         f"{PERSONA}\n\n"
         f"User input: {user_message}\n"
-        f"Step context: {json.dumps(step_context, ensure_ascii=False)}\n"
+        f"Step context: {step_context_text}\n"
     )
     return prompt
 
@@ -166,7 +166,7 @@ def build_discover_tools_prompt(
 def build_discover_tools_simple_prompt(
     user_input: str,
     tools_text: str,
-    step_context: Dict[str, Any],
+    step_context_text: str,
 ) -> str:
     return (
         "# Role\n"
@@ -184,6 +184,6 @@ def build_discover_tools_simple_prompt(
         "装飾や構造などは出力してはいけません\n\n"
         "# Input Data\n"
         f"User Input: {user_input}\n"
-        f"Step context: {json.dumps(step_context, ensure_ascii=False)}\n"
+        f"Step context: \n{step_context_text}\n"
         f"Available Tool Overview: {tools_text}\n"
     )

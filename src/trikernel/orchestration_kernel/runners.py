@@ -5,7 +5,14 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 
-from .models import Budget, LLMResponse, RunResult, RunnerContext, StepContext
+from .models import (
+    Budget,
+    LLMResponse,
+    RunResult,
+    RunnerContext,
+    SimpleStepContext,
+    StepContext,
+)
 from .protocols import Runner
 from ..state_kernel.models import Task
 from ..tool_kernel.structured_tool import TrikernelStructuredTool
@@ -170,7 +177,7 @@ class PDCARunner(Runner):
 
 class ToolLoopRunner(Runner):
     def run(self, task: Task, runner_context: RunnerContext) -> RunResult:
-        step_context = _initial_step_context(task)
+        step_context = _initial_simple_step_context(task)
         history = []
         if runner_context.runner_id == "main":
             history = runner_context.state_api.turn_list_recent("default", 5)
@@ -206,6 +213,8 @@ class ToolLoopRunner(Runner):
                 tools,
                 step_toolset,
             )
+            if response.tool_calls:
+                tool_messages.append(ensure_ai_message(response))
             if tool_results:
                 for tool_result in tool_results:
                     tool_messages.append(tool_message_from_result(tool_result))
@@ -213,6 +222,7 @@ class ToolLoopRunner(Runner):
             step_context.budget.remaining_steps -= 1
 
             if not response.tool_calls:
+                step_context.tool_summary = response.user_output or ""
                 completed = True
                 break
 
@@ -262,6 +272,19 @@ def _initial_step_context(task: Task) -> StepContext:
         open_issues=list(context_payload.get("open_issues", [])),
         plan=list(context_payload.get("plan", [])),
         last_result=context_payload.get("last_result", ""),
+        budget=budget,
+    )
+
+
+def _initial_simple_step_context(task: Task) -> SimpleStepContext:
+    payload = task.payload or {}
+    budget_payload = payload.get("budget") or {}
+    budget = Budget(
+        remaining_steps=int(budget_payload.get("remaining_steps", 10)),
+        spent_steps=int(budget_payload.get("spent_steps", 0)),
+    )
+    return SimpleStepContext(
+        tool_summary="",
         budget=budget,
     )
 
@@ -341,7 +364,7 @@ def _do_step(
 
 def _tool_loop_step(
     task: Task,
-    step_context: StepContext,
+    step_context: StepContext | SimpleStepContext,
     user_message: str,
     base_messages: List[BaseMessage],
     tool_messages: List[BaseMessage],
@@ -352,7 +375,7 @@ def _tool_loop_step(
     allowed_tools = [tool for tool in tools if tool.name in step_toolset]
     prompt = build_tool_loop_prompt_simple(
         user_message=user_message,
-        step_context=step_context.to_dict(),
+        step_context_text=step_context.to_str(),
     )
     messages = (
         list(base_messages) + [HumanMessage(content=prompt)] + list(tool_messages)
@@ -372,7 +395,7 @@ def _tool_loop_step(
 
 def _tool_loop_finalize(
     task: Task,
-    step_context: StepContext,
+    step_context: StepContext | SimpleStepContext,
     base_messages: List[BaseMessage],
     tool_messages: List[BaseMessage],
     runner_context: RunnerContext,
@@ -381,7 +404,7 @@ def _tool_loop_finalize(
     user_message = extract_user_message(payload)
     final_prompt = build_tool_loop_followup_prompt(
         user_message=user_message,
-        step_context=step_context.to_dict(),
+        step_context_text=step_context.to_str(),
     )
     messages = (
         list(base_messages) + [HumanMessage(content=final_prompt)] + list(tool_messages)
@@ -450,7 +473,7 @@ def _safe_json_load(text: Optional[str]) -> Dict[str, object]:
 
 def _discover_step_tools_simple(
     task: Task,
-    step_context: StepContext,
+    step_context: SimpleStepContext,
     runner_context: RunnerContext,
     user_input: str,
     messages: Sequence[BaseMessage],
@@ -462,7 +485,7 @@ def _discover_step_tools_simple(
     prompt = build_discover_tools_simple_prompt(
         user_input=user_input,
         tools_text=tools_text,
-        step_context=step_context.to_dict(),
+        step_context_text=step_context.to_str(),
     )
     discover_messages = list(messages) + [HumanMessage(content=prompt)]
     discover_task = Task(

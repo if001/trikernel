@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from typing import Any, Dict, List, Optional
 
 from ..state_kernel.protocols import StateKernelAPI
@@ -54,6 +55,25 @@ class Budget:
 
 
 @dataclass
+class SimpleStepContext:
+    tool_summary: str = ""
+    budget: Budget = field(default_factory=lambda: Budget(remaining_steps=5))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "tool_result": self.tool_summary,
+            "budget": self.budget.to_dict(),
+        }
+
+    def to_str(self) -> str:
+        return (
+            f"- tool_summary: {self.tool_summary}\n"
+            f"- remaining_step: {self.budget.remaining_steps}\n"
+            f"- spent_steps: {self.budget.spent_steps}\n"
+        )
+
+
+@dataclass
 class StepContext:
     facts: List[str] = field(default_factory=list)
     open_issues: List[str] = field(default_factory=list)
@@ -69,3 +89,6 @@ class StepContext:
             "last_result": self.last_result,
             "budget": self.budget.to_dict(),
         }
+
+    def to_str(self) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False)
