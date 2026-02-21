@@ -110,6 +110,7 @@ class DiscordBot(discord.Client):
             user_input = part_message[1]
         else:
             user_input = message.content
+        logger.info(f"on message! {message.channel.id}")
         self.user_input.put_nowait((message.channel.id, user_input))
 
     async def read_input(self) -> Tuple[int, str]:
@@ -118,7 +119,9 @@ class DiscordBot(discord.Client):
     def write_stream(self, assistant_output: str):
         raise NotImplementedError()
 
-    async def write_output(self, assistant_output: str, channel_id: Optional[int] = None):
+    async def write_output(
+        self, assistant_output: str, channel_id: Optional[int] = None
+    ):
         target_id = channel_id or (self.channel.id if self.channel else 0)
         return self.assistant_output.put_nowait((target_id, assistant_output))
 

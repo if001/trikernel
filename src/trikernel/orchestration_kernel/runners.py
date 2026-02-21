@@ -20,6 +20,7 @@ from .payloads import build_llm_payload, extract_user_message
 from .prompts import (
     build_check_step_prompt,
     build_discover_tools_prompt,
+    build_discover_tools_simple_prompt,
     build_do_followup_prompt,
     build_do_step_prompt,
     build_plan_step_prompt,
@@ -100,8 +101,7 @@ class PDCARunner(Runner):
             history = runner_context.state_api.turn_list_recent("default", 5)
         messages = history_to_messages(history)
         tools = runner_context.tool_api.tool_structured_list()
-        for v in tools:
-            print(v.name)
+
         while step_context.budget.remaining_steps > 0:
             step_goal, step_success_criteria = _plan_step(
                 task, step_context, runner_context
@@ -190,15 +190,11 @@ class ToolLoopRunner(Runner):
             )
         completed = False
         while step_context.budget.remaining_steps > 0:
-            step_toolset = _discover_step_tools(
+            step_toolset = _discover_step_tools_simple(
                 task,
                 step_context,
-                "",
-                "",
                 runner_context,
-                tools,
                 base_messages + tool_messages,
-                enforce_search=True,
             )
             logger.info(f"step_toolset: {step_toolset}")
             response, tool_results = _tool_loop_step(
@@ -451,6 +447,40 @@ def _safe_json_load(text: Optional[str]) -> Dict[str, object]:
         return json.loads(text)
     except json.JSONDecodeError:
         return {}
+
+
+def _discover_step_tools_simple(
+    task: Task,
+    step_context: StepContext,
+    runner_context: RunnerContext,
+    messages: Sequence[BaseMessage],
+) -> Set[str]:
+    tools_text = "tool_list:"
+    for v in runner_context.tool_api.tool_descriptions():
+        tools_text += f"{v['tool_name']}: v['description']\n"
+
+    payload = task.payload or {}
+    user_input = extract_user_message(payload)
+
+    prompt = build_discover_tools_simple_prompt(
+        user_input=user_input,
+        tools_text=tools_text,
+        step_context=step_context.to_dict(),
+        history=messages_to_history(messages),
+    )
+    discover_task = Task(
+        task_id=task.task_id,
+        task_type="pdca.discover",
+        payload=build_llm_payload(message=prompt),
+        state="running",
+    )
+
+    response = runner_context.llm_api.generate(discover_task, [])
+    query = response.user_output
+    logger.info(f"tool query {query}")
+    selected = runner_context.tool_api.tool_search(str(query))
+    logger.info(f"selected {selected}")
+    return set(selected)
 
 
 def _discover_step_tools(

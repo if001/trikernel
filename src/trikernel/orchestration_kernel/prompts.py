@@ -89,7 +89,7 @@ def build_tool_loop_followup_prompt(
     step_context: Dict[str, Any],
 ) -> str:
     prompt = (
-        "あなたの名前は「アオ」です。あなたは誠実で専門的なアシスタントです。\n"
+        "あなたは「アオ」という名前の誠実で専門的なアシスタントです。\n"
         "これまでのツール実行結果に基づき、ユーザーの当初の質問に対する最終的な回答を作成してください。\n\n"
         "## 回答のガイドライン\n"
         "- 複数のツールから得られた断片的な情報を整理し、一貫性のある回答にまとめてください。\n"
@@ -143,4 +143,32 @@ def build_discover_tools_prompt(
         f"Success criteria: {step_success_criteria}\n"
         f"Step context: {json.dumps(step_context, ensure_ascii=False)}\n"
         f"Recent turns: {json.dumps(history, ensure_ascii=False)}"
+    )
+
+
+def build_discover_tools_simple_prompt(
+    user_input: str,
+    tools_text: str,
+    step_context: Dict[str, Any],
+    history: List[Dict[str, Any]],
+) -> str:
+    return (
+        "# Role\n"
+        "あなたは、ユーザーの入力を分析し、膨大なツールセットの中から最適なツールを検索するための「検索クエリ」を作成するエキスパートです。\n\n"
+        "# Task\n"
+        "与えられた「ユーザーの入力」「会話履歴」「ツールのリスト（名前と概要）」を元に、ベクトル検索に最も適した検索クエリを生成してください。\n\n"
+        "# Guidelines\n"
+        "- 意味的拡張: ユーザーの曖昧な表現を、ツールの説明文（Description）に使われそうな技術的なキーワードや機能名に変換してください。\n"
+        " - 例: 「グラフにして」→「データ可視化、チャート生成、折れ線グラフ、プロット」\n"
+        "- 文脈の凝縮: 直近の履歴から、現在の要求が「何に対して」行われているのか（対象物）を特定し、クエリに含めてください。\n"
+        "- ノイズの除去: 「お願いします」「〜をやって」などの挨拶や指示語を除去し、機能的なキーワードに集中してください。\n"
+        "- 出力形式: 検索精度を高めるため、複数のキーワードをスペース区切りで出力、または独立した複数のクエリを出力してください。\n\n"
+        "# Output format\n"
+        "textとしてqueryのみを出力すること\n"
+        "装飾や構造などは出力しないこと\n\n"
+        "# Input Data\n"
+        f"User Input: {user_input}\n"
+        f"Step context: {json.dumps(step_context, ensure_ascii=False)}\n"
+        f"Recent turns: {json.dumps(history, ensure_ascii=False)}\n"
+        f"Available Tool Overview: {tools_text}\n"
     )
