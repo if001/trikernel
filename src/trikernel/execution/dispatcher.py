@@ -99,6 +99,7 @@ class WorkDispatcher:
             try:
                 payload = await self._result_receiver.try_recv_json()
             except Exception:
+                logger.error("worker result receive failed", exc_info=True)
                 break
             if payload is None:
                 break
@@ -156,6 +157,7 @@ class WorkDispatcher:
                 task.task_id,
                 {"code": "WORKER_TIMEOUT", "message": "Worker timeout exceeded."},
             )
+            logger.error("worker timeout exceeded: %s", task_id)
             self._pending = [
                 entry for entry in self._pending if entry.task_id != task_id
             ]
@@ -176,6 +178,7 @@ class WorkDispatcher:
                             "message": "Work queue timeout exceeded.",
                         },
                     )
+                    logger.error("work queue timeout exceeded: %s", entry.task_id)
                 continue
             still_pending.append(entry)
         self._pending = still_pending
@@ -213,13 +216,17 @@ def _next_run_at(interval_seconds: int) -> str:
 
 def _reschedule_patch(payload: dict) -> dict:
     interval = _clamp_repeat_interval(int(payload.get("repeat_interval_seconds") or 0))
+    next_payload = dict(payload)
+    next_payload.update(
+        {
+            "run_at": _next_run_at(interval),
+            "repeat_interval_seconds": interval,
+            "repeat_enabled": True,
+        }
+    )
     return {
         "state": "queued",
         "claimed_by": None,
         "claim_expires_at": None,
-        "payload": {
-            "run_at": _next_run_at(interval),
-            "repeat_interval_seconds": interval,
-            "repeat_enabled": True,
-        },
+        "payload": next_payload,
     }

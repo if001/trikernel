@@ -54,6 +54,7 @@ def execute_tool_calls(
                 }
             )
         except ValueError as exc:
+            logger.error("tool invalid args: %s", call.tool_name, exc_info=True)
             tool_results.append(
                 {
                     "tool": call.tool_name,
@@ -65,6 +66,7 @@ def execute_tool_calls(
                 }
             )
         except Exception as exc:
+            logger.error("tool execution error: %s", call.tool_name, exc_info=True)
             tool_results.append(
                 {
                     "tool": call.tool_name,

@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from typing import Optional
 
+from trikernel.utils.logging import get_logger
+
 from ..orchestration_kernel.models import RunResult, RunnerContext
 from ..orchestration_kernel.protocols import LLMAPI, Runner
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI
 from ..tool_kernel.protocols import ToolAPI, ToolLLMAPI
 from .transports import ResultSender, WorkReceiver, ZmqResultSender, ZmqWorkReceiver
+
+logger = get_logger(__name__)
 
 
 class WorkWorker:
@@ -41,16 +45,23 @@ class WorkWorker:
             return
         task_meta = (task.payload or {}).get("meta")
         result = self._run_task(task, runner_id="worker")
-        await self._result_sender.send_json(
-            {
-                "task_id": task.task_id,
-                "task_state": result.task_state,
-                "user_output": result.user_output,
-                "artifact_refs": result.artifact_refs,
-                "error": result.error,
-                "meta": task_meta,
-            }
-        )
+        try:
+            await self._result_sender.send_json(
+                {
+                    "task_id": task.task_id,
+                    "task_state": result.task_state,
+                    "user_output": result.user_output,
+                    "artifact_refs": result.artifact_refs,
+                    "error": result.error,
+                    "meta": task_meta,
+                }
+            )
+        except Exception:
+            logger.error("worker result send failed: %s", task.task_id, exc_info=True)
+            self.state_api.task_fail(
+                task.task_id,
+                {"code": "WORKER_SEND_FAILED", "message": "Failed to send result."},
+            )
 
     def _run_task(self, task: Task, runner_id: str) -> RunResult:
         context = RunnerContext(
@@ -60,4 +71,12 @@ class WorkWorker:
             llm_api=self.llm_api,
             tool_llm_api=self.tool_llm_api,
         )
-        return self.runner.run(task, context)
+        try:
+            return self.runner.run(task, context)
+        except Exception:
+            logger.error("worker task failed: %s", task.task_id, exc_info=True)
+            return RunResult(
+                user_output=None,
+                task_state="failed",
+                error={"code": "WORKER_EXCEPTION", "message": "Worker failed."},
+            )

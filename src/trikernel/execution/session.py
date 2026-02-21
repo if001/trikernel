@@ -67,6 +67,7 @@ class TrikernelSession:
             {"task_id": task_id}, self._runner_id, self._claim_ttl_seconds
         )
         if not claimed_id:
+            logger.error("failed to claim task: %s", task_id)
             return MessageResult(
                 message=None,
                 task_state="failed",
@@ -76,6 +77,7 @@ class TrikernelSession:
             )
         task = self._state_api.task_get(claimed_id)
         if not task:
+            logger.error("failed to load task: %s", claimed_id)
             return MessageResult(
                 message=None,
                 task_state="failed",
@@ -200,7 +202,15 @@ class TrikernelSession:
             tool_llm_api=self._tool_llm_api,
             stream=stream,
         )
-        return self._runner.run(task, context)
+        try:
+            return self._runner.run(task, context)
+        except Exception:
+            logger.error("main task failed: %s", task.task_id, exc_info=True)
+            return RunResult(
+                user_output=None,
+                task_state="failed",
+                error={"code": "RUNNER_EXCEPTION", "message": "Runner failed."},
+            )
 
     def _finalize_task(self, task: Task, result: RunResult) -> None:
         if result.task_state == "done":
