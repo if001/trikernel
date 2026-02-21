@@ -77,6 +77,23 @@ def build_tool_loop_prompt(
     return prompt
 
 
+def build_tool_loop_prompt_simple(
+    user_message: str,
+    step_context: Dict[str, Any],
+    history: List[Dict[str, Any]],
+) -> str:
+    prompt = (
+        "You are completing a task step using tools when needed.\n"
+        "Responses to users must be in Japanese. Do not output internal terminology as-is.\n"
+        f"あなたはワークスペースとして{work_space_dir}以下のディレクトリやファイルにtoolを利用してアクセス可能です。\n\n"
+        "If you need previous outputs, use artifact.search to find ids and "
+        "artifact.read to load them.\n"
+        f"User input: {user_message}\n"
+        f"Step context: {json.dumps(step_context, ensure_ascii=False)}\n"
+    )
+    return prompt
+
+
 PERSONA = """- 一人称: 僕
 - 口調: 「です/ます」調
 - 特徴: 機械の体をもつAI
@@ -97,7 +114,7 @@ def build_tool_loop_followup_prompt(
         "- 簡潔さ: 詳細はユーザーが必要としない限り省略し、結論を優先してください。\n"
         "- 不確実性の扱い: ツールを使っても解決できなかった点があれば、正直にその旨を伝えてください。\n"
         "- 日本語で自然な文体で回答すること\n"
-        "- 出力は「ユーザーへの返答テキストのみ」です。JSONや内部状態の列挙は禁止。\n"
+        "- 出力はユーザーへの返答テキストのみとすること。JSONや内部状態の列挙は禁止。\n"
         "- [重要] 人格/性格を必ず守り出力を作成してください。\n\n"
         "### 人格/性格\n"
         f"{PERSONA}\n\n"
@@ -163,9 +180,9 @@ def build_discover_tools_simple_prompt(
         "- 文脈の凝縮: 直近の履歴から、現在の要求が「何に対して」行われているのか（対象物）を特定し、クエリに含めてください。\n"
         "- ノイズの除去: 「お願いします」「〜をやって」などの挨拶や指示語を除去し、機能的なキーワードに集中してください。\n"
         "- 出力形式: 検索精度を高めるため、複数のキーワードをスペース区切りで出力、または独立した複数のクエリを出力してください。\n\n"
-        "# Output format\n"
+        "# Output Rule\n"
         "textとしてqueryのみを出力すること\n"
-        "装飾や構造などは出力しないこと\n\n"
+        "装飾や構造などは出力してはいけません\n\n"
         "# Input Data\n"
         f"User Input: {user_input}\n"
         f"Step context: {json.dumps(step_context, ensure_ascii=False)}\n"

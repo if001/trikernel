@@ -26,6 +26,7 @@ from .prompts import (
     build_plan_step_prompt,
     build_tool_loop_followup_prompt,
     build_tool_loop_prompt,
+    build_tool_loop_prompt_simple,
 )
 from .tool_calls import execute_tool_calls
 from .types import ToolResult
@@ -253,7 +254,7 @@ def _initial_step_context(task: Task) -> StepContext:
     payload = task.payload or {}
     budget_payload = payload.get("budget") or {}
     budget = Budget(
-        remaining_steps=int(budget_payload.get("remaining_steps", 3)),
+        remaining_steps=int(budget_payload.get("remaining_steps", 10)),
         spent_steps=int(budget_payload.get("spent_steps", 0)),
     )
     context_payload = payload.get("step_context") or {}
@@ -351,9 +352,10 @@ def _tool_loop_step(
     payload = task.payload or {}
     user_message = extract_user_message(payload)
     allowed_tools = [tool for tool in tools if tool.name in step_toolset]
-    prompt = build_tool_loop_prompt(
+    prompt = build_tool_loop_prompt_simple(
         user_message=user_message,
         step_context=step_context.to_dict(),
+        history=messages_to_history(base_messages + tool_messages),
     )
     messages = (
         list(base_messages) + [HumanMessage(content=prompt)] + list(tool_messages)
@@ -477,9 +479,9 @@ def _discover_step_tools_simple(
 
     response = runner_context.llm_api.generate(discover_task, [])
     query = response.user_output
-    logger.info(f"tool query {query}")
+    logger.info(f"tool query: {query}")
     selected = runner_context.tool_api.tool_search(str(query))
-    logger.info(f"selected {selected}")
+    logger.info(f"selected: {selected}")
     return set(selected)
 
 
