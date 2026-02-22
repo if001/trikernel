@@ -103,8 +103,6 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
                 logger.error("not support")
             else:
                 await ui.write_output(result.message or "", channel_id=channel_id)
-    except Exception as e:
-        logger.error(f"error {e}")
     finally:
         session.stop_workers()
 

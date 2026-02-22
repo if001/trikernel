@@ -223,6 +223,7 @@ class ToolLoopRunner(Runner):
 
             if not response.tool_calls:
                 step_context.tool_summary = response.user_output or ""
+                logger.info(f"tool_summary: {response.user_output}")
                 completed = True
                 break
 
@@ -283,7 +284,14 @@ def _initial_simple_step_context(task: Task) -> SimpleStepContext:
         remaining_steps=int(budget_payload.get("remaining_steps", 10)),
         spent_steps=int(budget_payload.get("spent_steps", 0)),
     )
+    _task = "main"
+    if task.task_type == "user_request":
+        _task = "main"
+    else:
+        _task = "worker"
+
     return SimpleStepContext(
+        role=_task,
         tool_summary="",
         budget=budget,
     )

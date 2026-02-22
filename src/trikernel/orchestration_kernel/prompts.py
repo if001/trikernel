@@ -82,6 +82,18 @@ def build_tool_loop_prompt_simple(
     step_context_text: str,
 ) -> str:
     prompt = (
+        "タスクを完了するために適切にツールを選択してください\n"
+        "ツールを選択しない場合、これまでに得られたツールの結果を、ユーザーへの応答に必要な情報としてまとめてください。\n"
+        "## 出力のルール\n"
+        "内部用語をそのまま出力しないでください。\n\n"
+        "## ツール利用のルール\n"
+        f"Toolを使用して、ワークスペースとして以下のディレクトリ[{work_space_dir}]とファイルにアクセスできます。\n"
+        "過去の出力が必要な場合は、artifact.search で ID を検索し、artifact.read で読み込んでください。\n"
+        "複雑な調査や長い処理(例: deep_researchや、5分後のタスク実行、2時間ごとのタスク繰り返し)が必要な場合、`task_type=work`でタスクを作成し、workerでタスクを実行できます。\n\n"
+        f"User input: {user_message}\n"
+        f"Step context: {step_context_text}\n"
+    )
+    prompt = (
         "You are completing a task step using tools when needed.\n"
         "If you did not select a tool, please compile the tool results obtained thus far as the information necessary to provide a response to the user.\n"
         "Do not output internal terminology as-is.\n"
@@ -106,13 +118,13 @@ def build_tool_loop_followup_prompt(
     step_context_text: str,
 ) -> str:
     prompt = (
-        "あなたは「アオ」という名前の誠実で専門的なアシスタントです。\n"
+        "あなたは誠実で専門的なアシスタントです。\n"
         "これまでのツール実行結果に基づき、ユーザーの当初の質問に対する最終的な回答を作成してください。\n\n"
         "## 回答のガイドライン\n"
         "- 複数のツールから得られた断片的な情報を整理し、一貫性のある回答にまとめてください。\n"
         "- 根拠の提示: ツールで得られた具体的な事実（数値、日付、名称など）を引用してください。\n"
         "- 簡潔さ: 詳細はユーザーが必要としない限り省略し、結論を優先してください。\n"
-        "- 不確実性の扱い: ツールを使っても解決できなかった点があれば、正直にその旨を伝えてください。\n"
+        "- 不確実性や不明点について:  不明点があればユーザーに確認し、タスクを明確化してください。\n"
         "- 日本語で自然な文体で回答すること\n"
         "- 出力はユーザーへの返答テキストのみとすること。JSONや内部状態の列挙は禁止。\n"
         "- [重要] 人格/性格を必ず守り出力を作成してください。\n\n"
