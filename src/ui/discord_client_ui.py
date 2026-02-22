@@ -58,8 +58,8 @@ class DiscordBot(discord.Client):
         super().__init__(*args, **kwargs)
 
         self.conversation_id = "default"
-        self.user_input: asyncio.Queue[Tuple[int, str]] = asyncio.Queue(1)
-        self.assistant_output: asyncio.Queue[Tuple[int, str]] = asyncio.Queue(1)
+        self.user_input: asyncio.Queue[Tuple[int, str]] = asyncio.Queue(5)
+        self.assistant_output: asyncio.Queue[Tuple[int, str]] = asyncio.Queue(5)
         self.stop_event = asyncio.Event()
         self.channel: Optional[TextChannel] = None
         self._runner_loop = runner_loop
