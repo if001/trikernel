@@ -4,9 +4,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from trikernel.utils.logging import get_logger
+
 from .file_store import JsonFileArtifactStore, JsonFileTaskStore, JsonFileTurnStore
-from .models import Artifact, Task, Turn
+from .models import Artifact, Task, TaskType, Turn
 from .protocols import ArtifactStore, StateKernelAPI, TaskStore, TurnStore
+
+logger = get_logger(__name__)
 
 
 class StateKernel(StateKernelAPI):
@@ -23,8 +27,8 @@ class StateKernel(StateKernelAPI):
         self._artifact_store = artifact_store or JsonFileArtifactStore(data_dir)
         self._turn_store = turn_store or JsonFileTurnStore(data_dir)
 
-    def task_create(self, task_type: str, payload: Dict[str, Any]) -> str:
-        print(f"task creat: {task_type}, {payload}")
+    def task_create(self, task_type: TaskType, payload: Dict[str, Any]) -> str:
+        logger.info(f"task_create: {task_type}, {payload}")
         return self._task_store.create(task_type, payload).task_id
 
     def task_get(self, task_id: str) -> Optional[Task]:

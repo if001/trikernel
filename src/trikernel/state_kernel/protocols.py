@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Protocol
 
-from .models import Artifact, Task, Turn
+from .models import Artifact, Task, TaskType, Turn
 
 
 class TaskStore(Protocol):
@@ -31,7 +31,9 @@ class TaskStore(Protocol):
 
 
 class ArtifactStore(Protocol):
-    def write(self, media_type: str, body: str, metadata: Dict[str, Any]) -> Artifact: ...
+    def write(
+        self, media_type: str, body: str, metadata: Dict[str, Any]
+    ) -> Artifact: ...
 
     def read(self, artifact_id: str) -> Optional[Artifact]: ...
 
@@ -61,7 +63,7 @@ class TurnStore(Protocol):
 
 
 class StateKernelAPI(Protocol):
-    def task_create(self, task_type: str, payload: Dict[str, Any]) -> str: ...
+    def task_create(self, task_type: TaskType, payload: Dict[str, Any]) -> str: ...
 
     def task_get(self, task_id: str) -> Optional[Task]: ...
 
@@ -84,7 +86,9 @@ class StateKernelAPI(Protocol):
 
     def task_fail(self, task_id: str, error_info: Dict[str, Any]) -> Optional[Task]: ...
 
-    def artifact_write(self, media_type: str, body: str, metadata: Dict[str, Any]) -> str: ...
+    def artifact_write(
+        self, media_type: str, body: str, metadata: Dict[str, Any]
+    ) -> str: ...
 
     def artifact_read(self, artifact_id: str) -> Optional[Artifact]: ...
 

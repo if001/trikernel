@@ -26,11 +26,12 @@ class ToolEntry:
 
 
 class ToolKernel(ToolAPI):
-    def __init__(self, data_dir: Optional[Path] = None) -> None:
+    def __init__(self, data_dir: Optional[Path] = None, re_index: bool = False) -> None:
         if data_dir is None:
             data_dir = Path(".state")
         self._tools: Dict[str, ToolEntry] = {}
         self._search_index = _init_tool_search(data_dir)
+        self._re_index = re_index
 
     def tool_register(
         self,
@@ -42,7 +43,7 @@ class ToolKernel(ToolAPI):
             handler=handler,
             structured_tool=None,
         )
-        self._index_tool(tool_definition, force=False)
+        self._index_tool(tool_definition, force=self._re_index)
 
     def tool_register_structured(
         self, tool_definition: ToolDefinition, tool: TrikernelStructuredTool

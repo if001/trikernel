@@ -24,7 +24,7 @@ tools:
           properties:
             message:
               type: string
-              description: Work instruction message for the worker.
+              description: ワーカーで実行するべきタスクの内容
             run_at:
               type: string
               description: If this field is set, the task will be executed at the specified time. ISO8601 timestamp format.
@@ -39,7 +39,7 @@ tools:
     output_schema:
       type: string
   - tool_name: task.create_notification
-    description: Create a notification task used by workers to notify the main flow/user.(If role=main, do not execute.)
+    description: workerのタスクが終了し、その成果物をmainに送信するために利用してください。(If role=main, do not execute.)
     input_schema:
       type: object
       properties:
