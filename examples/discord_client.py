@@ -56,7 +56,7 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
     llm = OllamaLLM()
     tool_llm = ToolOllamaLLM()
     state = StateKernel()
-    tool_kernel = ToolKernel()
+    tool_kernel = ToolKernel(re_index=False)
     register_default_tools(tool_kernel)
 
     tools = build_web_tools()
@@ -66,16 +66,24 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
     session = TrikernelSession(state, tool_kernel, runner, llm, tool_llm)
     session.start_workers()
 
-    try:
+    async def _notification_loop() -> None:
         while not ui.stop_event.is_set():
-            logger.info(f"run_wait")
-            for notice in session.drain_notifications():
+            notices = session.drain_notifications()
+            for notice in notices:
                 text = notice.get("message") if isinstance(notice, dict) else notice
                 meta = notice.get("meta") if isinstance(notice, dict) else {}
                 channel_id = meta.get("channel_id") if isinstance(meta, dict) else None
                 await ui.write_output(
                     text or "", channel_id=channel_id or DISCORD_CHANNEL_ID
                 )
+            if not notices:
+                await asyncio.sleep(0.2)
+
+    notification_task = asyncio.create_task(_notification_loop())
+
+    try:
+        while not ui.stop_event.is_set():
+            logger.info(f"run_wait")
             channel_id, user_input = await ui.read_input()
             logger.info(f"read: {channel_id}")
             if not user_input:
@@ -104,6 +112,7 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
             else:
                 await ui.write_output(result.message or "", channel_id=channel_id)
     finally:
+        notification_task.cancel()
         session.stop_workers()
 
 

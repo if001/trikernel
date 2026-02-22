@@ -38,18 +38,37 @@ def _build_args_schema(
 ) -> Optional[Type[BaseModel]]:
     if input_schema is None:
         return None
-    properties = input_schema.get("properties") or {}
-    required = set(input_schema.get("required") or [])
+    model_name = f"{_safe_class_name(tool_name)}Args"
+    return _build_model_from_schema(model_name, input_schema)
+
+
+def _build_model_from_schema(
+    model_name: str, schema: Dict[str, Any]
+) -> Optional[Type[BaseModel]]:
+    properties = schema.get("properties") or {}
+    if not properties:
+        return None
+    required = set(schema.get("required") or [])
     fields: Dict[str, Tuple[Any, Any]] = {}
     for prop, spec in properties.items():
-        field_type = _json_schema_type_to_python(spec)
         description = spec.get("description")
+        field_type = _schema_to_field_type(model_name, prop, spec)
         if prop in required:
             fields[prop] = (field_type, Field(..., description=description))
         else:
-            fields[prop] = (Optional[field_type], Field(default=None, description=description))
-    model_name = f"{_safe_class_name(tool_name)}Args"
+            fields[prop] = (
+                Optional[field_type],
+                Field(default=None, description=description),
+            )
     return create_model(model_name, **fields)  # type: ignore[arg-type]
+
+
+def _schema_to_field_type(model_name: str, prop: str, spec: Dict[str, Any]) -> Any:
+    raw_type = spec.get("type")
+    if raw_type == "object" and spec.get("properties"):
+        nested_name = f"{model_name}{_safe_class_name(prop)}"
+        return _build_model_from_schema(nested_name, spec) or Dict[str, Any]
+    return _json_schema_type_to_python(spec)
 
 
 def _schema_from_tool(tool: StructuredTool) -> Dict[str, Any]:

@@ -1,3 +1,4 @@
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel
 from trikernel.tool_kernel.models import ToolContext, ToolDefinition
@@ -192,3 +193,32 @@ def test_task_create_work_definition_and_structured_tool():
     required = schema.get("required") or []
     assert "payload" in required
     assert "payload" in (schema.get("properties") or {})
+
+
+def test_task_create_work_payload_descriptions_on_structured_tool():
+    dsl_path = Path(__file__).resolve().parents[1] / "dsl" / "state_tools.yaml"
+    tools = build_tools_from_dsl(dsl_path, state_tool_functions())
+    registration = next(
+        tool for tool in tools if tool.definition.tool_name == "task.create_work"
+    )
+    definition = registration.definition
+    payload_props = definition.input_schema["properties"]["payload"]["properties"]
+    assert (
+        payload_props["message"]["description"] == "ワーカーで実行するべきタスクの内容"
+    )
+
+    structured = build_structured_tool(definition, registration.handler)
+    schema = structured.as_langchain().args_schema.model_json_schema()
+    payload_schema = schema["properties"]["payload"]
+    if "$ref" in payload_schema:
+        ref_key = payload_schema["$ref"].split("/")[-1]
+        payload_schema = schema.get("$defs", {}).get(ref_key, {})
+    print("payload_schema", payload_schema)
+    di = convert_to_openai_tool(structured.as_langchain())
+    print("di", di)
+
+    payload_fields = payload_schema["properties"]
+
+    assert (
+        payload_fields["message"]["description"] == "ワーカーで実行するべきタスクの内容"
+    )
