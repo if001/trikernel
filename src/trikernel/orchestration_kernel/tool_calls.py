@@ -32,6 +32,7 @@ def execute_tool_calls(
     for call in tool_calls:
         logger.info(f"tool run: {call.tool_name}")
         if allowed_tools is not None and call.tool_name not in allowed_tools:
+            logger.error(f"too_not_allowed")
             tool_results.append(
                 {
                     "tool": call.tool_name,
@@ -42,10 +43,11 @@ def execute_tool_calls(
             continue
         tool_context = build_tool_context(runner_context, task)
         try:
+            logger.info(f"args: {call.args}")
             result = runner_context.tool_api.tool_invoke(
                 call.tool_name, call.args, tool_context
             )
-            logger.info(f"[{call.tool_name}]: {result}")
+            logger.info(f"[{call.tool_name}] result: {result}")
             tool_results.append(
                 {
                     "tool": call.tool_name,

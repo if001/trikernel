@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel, Field, create_model
 
 from .models import ToolDefinition
 from .structured_tool import TrikernelStructuredTool, adapt_langchain_tool
@@ -43,10 +43,11 @@ def _build_args_schema(
     fields: Dict[str, Tuple[Any, Any]] = {}
     for prop, spec in properties.items():
         field_type = _json_schema_type_to_python(spec)
+        description = spec.get("description")
         if prop in required:
-            fields[prop] = (field_type, ...)
+            fields[prop] = (field_type, Field(..., description=description))
         else:
-            fields[prop] = (Optional[field_type], None)
+            fields[prop] = (Optional[field_type], Field(default=None, description=description))
     model_name = f"{_safe_class_name(tool_name)}Args"
     return create_model(model_name, **fields)  # type: ignore[arg-type]
 

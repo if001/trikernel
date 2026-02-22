@@ -45,8 +45,8 @@ def test_state_tools_task_create(tmp_path):
 
     context = ToolContext(runner_id="test", task_id=None, state_api=state, now="now")
     task_id = kernel.tool_invoke(
-        "task.create",
-        {"task_type": "user_request", "payload": {"user_message": "hi"}},
+        "task.create_user_request",
+        {"payload": {"user_message": "hi"}},
         tool_context=context,
     )
     assert state.task_get(task_id) is not None
@@ -64,8 +64,8 @@ def test_task_create_missing_required_raises(tmp_path):
     context = ToolContext(runner_id="test", task_id=None, state_api=state, now="now")
     with pytest.raises(ValueError):
         kernel.tool_invoke(
-            "task.create",
-            {"task_type": "user_request", "payload": {}},
+            "task.create_user_request",
+            {"payload": {}},
             tool_context=context,
         )
 
@@ -105,8 +105,8 @@ def test_build_tools_from_dsl(tmp_path):
 
     context = ToolContext(runner_id="test", task_id=None, state_api=state, now="now")
     task_id = kernel.tool_invoke(
-        "task.create",
-        {"task_type": "user_request", "payload": {"user_message": "dsl"}},
+        "task.create_user_request",
+        {"payload": {"user_message": "dsl"}},
         tool_context=context,
     )
     assert state.task_get(task_id) is not None
@@ -138,3 +138,57 @@ def test_structured_tool_adapter_preserves_args_schema():
     assert "x" in required
     assert "x" in properties
     assert "y" in properties
+
+
+def test_dsl_arg_description_propagates_to_structured_tool(tmp_path):
+    dsl_path = tmp_path / "desc_tool.yaml"
+    dsl_path.write_text(
+        json.dumps(
+            {
+                "tools": [
+                    {
+                        "tool_name": "demo.echo",
+                        "description": "Echo input text",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {
+                                "text": {
+                                    "type": "string",
+                                    "description": "Text to echo",
+                                }
+                            },
+                            "required": ["text"],
+                        },
+                        "output_schema": {"type": "object", "properties": {}},
+                    }
+                ]
+            },
+            ensure_ascii=True,
+        ),
+        encoding="utf-8",
+    )
+    tools = build_tools_from_dsl(dsl_path, {"demo.echo": lambda text: text})
+    definition = tools[0].definition
+    assert (
+        definition.input_schema["properties"]["text"]["description"] == "Text to echo"
+    )
+
+    structured = build_structured_tool(definition, tools[0].handler)
+    schema = structured.as_langchain().args_schema.model_json_schema()
+    assert schema["properties"]["text"]["description"] == "Text to echo"
+
+
+def test_task_create_work_definition_and_structured_tool():
+    dsl_path = Path(__file__).resolve().parents[1] / "dsl" / "state_tools.yaml"
+    tools = build_tools_from_dsl(dsl_path, state_tool_functions())
+    registration = next(
+        tool for tool in tools if tool.definition.tool_name == "task.create_work"
+    )
+    definition = registration.definition
+    assert definition.input_schema["properties"]["payload"]["required"] == ["message"]
+
+    structured = build_structured_tool(definition, registration.handler)
+    schema = structured.as_langchain().args_schema.model_json_schema()
+    required = schema.get("required") or []
+    assert "payload" in required
+    assert "payload" in (schema.get("properties") or {})

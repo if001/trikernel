@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 
 def validate_input(schema: Dict[str, Any], args: Dict[str, Any]) -> None:
@@ -8,15 +8,6 @@ def validate_input(schema: Dict[str, Any], args: Dict[str, Any]) -> None:
 
 
 def _validate(schema: Dict[str, Any], value: Any, *, path: str) -> None:
-    if "oneOf" in schema:
-        _validate_one_of(schema["oneOf"], value, path=path)
-        return
-    if "anyOf" in schema:
-        _validate_any_of(schema["anyOf"], value, path=path)
-        return
-    if "allOf" in schema:
-        _validate_all_of(schema["allOf"], value, path=path)
-
     if "const" in schema and value != schema["const"]:
         raise ValueError(f"{path} must be {schema['const']}")
 
@@ -28,33 +19,6 @@ def _validate(schema: Dict[str, Any], value: Any, *, path: str) -> None:
         _validate_object(schema, value, path=path)
     elif expected_type == "array":
         _validate_array(schema, value, path=path)
-
-
-def _validate_one_of(options: List[Dict[str, Any]], value: Any, *, path: str) -> None:
-    matches = 0
-    for option in options:
-        try:
-            _validate(option, value, path=path)
-        except ValueError:
-            continue
-        matches += 1
-    if matches != 1:
-        raise ValueError(f"{path} must match exactly one schema in oneOf")
-
-
-def _validate_any_of(options: List[Dict[str, Any]], value: Any, *, path: str) -> None:
-    for option in options:
-        try:
-            _validate(option, value, path=path)
-            return
-        except ValueError:
-            continue
-    raise ValueError(f"{path} must match at least one schema in anyOf")
-
-
-def _validate_all_of(options: List[Dict[str, Any]], value: Any, *, path: str) -> None:
-    for option in options:
-        _validate(option, value, path=path)
 
 
 def _validate_type(expected_type: str, value: Any, *, path: str) -> None:

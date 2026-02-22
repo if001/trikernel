@@ -12,15 +12,22 @@ def _require_state_api(context: ToolContext) -> Any:
     return context.state_api
 
 
-def task_create(
-    task_type: str, payload: Dict[str, Any], *, context: ToolContext
-) -> str:
-    if task_type == "work":
-        run_at = payload.get("run_at")
-        if run_at:
-            _validate_run_at(str(run_at))
+def task_create_user_request(payload: Dict[str, Any], *, context: ToolContext) -> str:
     state_api = _require_state_api(context)
-    return state_api.task_create(task_type, payload)
+    return state_api.task_create("user_request", payload)
+
+
+def task_create_work(payload: Dict[str, Any], *, context: ToolContext) -> str:
+    run_at = payload.get("run_at")
+    if run_at:
+        _validate_run_at(str(run_at))
+    state_api = _require_state_api(context)
+    return state_api.task_create("work", payload)
+
+
+def task_create_notification(payload: Dict[str, Any], *, context: ToolContext) -> str:
+    state_api = _require_state_api(context)
+    return state_api.task_create("notification", payload)
 
 
 def task_update(
@@ -143,7 +150,9 @@ def turn_list_recent(
 
 def state_tool_functions() -> Dict[str, Any]:
     return {
-        "task.create": task_create,
+        "task.create_user_request": task_create_user_request,
+        "task.create_work": task_create_work,
+        "task.create_notification": task_create_notification,
         "task.update": task_update,
         "task.get": task_get,
         "task.list": task_list,
