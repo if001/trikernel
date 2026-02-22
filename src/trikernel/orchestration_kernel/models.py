@@ -57,6 +57,7 @@ class Budget:
 @dataclass
 class SimpleStepContext:
     role: str = "main"
+    task_type: str = ""
     tool_summary: str = ""
     budget: Budget = field(default_factory=lambda: Budget(remaining_steps=5))
 
@@ -68,7 +69,8 @@ class SimpleStepContext:
 
     def to_str(self) -> str:
         return (
-            f" -role: {self.role}\n"
+            f"- role: {self.role}\n"
+            f"- task_type: {self.task_type}\n"
             f"- tool_summary: {self.tool_summary}\n"
             f"- remaining_step: {self.budget.remaining_steps}\n"
             f"- spent_steps: {self.budget.spent_steps}\n"

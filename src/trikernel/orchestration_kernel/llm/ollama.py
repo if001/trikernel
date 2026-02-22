@@ -7,17 +7,17 @@ from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 
 from trikernel.orchestration_kernel.protocols import LLMAPI
 
+from ..logging import get_logger
+from ..models import LLMResponse, LLMToolCall
 from .config import OllamaConfig, load_ollama_config
-from .logging import get_logger
-from .models import LLMResponse, LLMToolCall
 from .message_builders import (
     build_messages,
     parse_response,
     parse_stream_message,
     to_langchain_tools,
 )
-from ..state_kernel.models import Task
-from ..tool_kernel.structured_tool import TrikernelStructuredTool
+from ...state_kernel.models import Task
+from ...tool_kernel.structured_tool import TrikernelStructuredTool
 
 logger = get_logger(__name__)
 

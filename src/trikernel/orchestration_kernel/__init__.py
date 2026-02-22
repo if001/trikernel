@@ -1,4 +1,4 @@
-from .config import GeminiConfig, OllamaConfig, load_gemini_config, load_ollama_config
+from .llm.config import GeminiConfig, OllamaConfig, load_gemini_config, load_ollama_config
 from .models import (
     Budget,
     LLMResponse,
@@ -7,8 +7,8 @@ from .models import (
     RunnerContext,
     StepContext,
 )
-from .gemini import GeminiLLM
-from .ollama import OllamaLLM
+from .llm.gemini import GeminiLLM
+from .llm.ollama import OllamaLLM
 from .protocols import LLMAPI, Runner
 from .runners import PDCARunner, SingleTurnRunner, ToolLoopRunner
 from .logging import get_logger
