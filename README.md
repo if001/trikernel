@@ -21,7 +21,7 @@ uv pip install -e .
 
 ```python
 from ui.terminal import TerminalUI
-from trikernel.session import TrikernelSession
+from trikernel import TrikernelSession
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel
 from trikernel.tool_kernel.ollama import ToolOllamaLLM
@@ -71,7 +71,7 @@ Core DSL files live under `src/trikernel/tool_kernel/dsl`.
 ### Task Payload Schemas
 
 - `user_request`: `{"user_message": "..."}`
-- `work`: `{"message": "..."}` (the worker/runner interprets this message)
+- `work`: `{"message": "...", "run_at": "...", "repeat_interval_seconds": 3600, "repeat_enabled": true}` (the worker/runner interprets this message; scheduling fields are optional)
 
 ### Work Tasks (Background)
 
@@ -82,8 +82,11 @@ Example payloads are user-defined; the worker/runner can use tools to fulfill th
 task_id = session.create_work_task(
     {"message": "https://example.com を読んで要約して保存してください"},
     run_at="2025-01-01T12:00:00+00:00",
+    repeat_every_seconds=3600,
+    repeat_enabled=True,
 )
 ```
+Recurring work tasks enforce a minimum interval of 1 hour.
 
 ### Environment Variables
 
@@ -95,6 +98,9 @@ OLLAMA_MODEL=qwen3:8b
 OLLAMA_SMALL_MODEL=qwen3:4b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 work_space_dir=/path/to/workspace
+GOOGLE_API_KEY=your_api_key
+GEMINI_MODEL=gemini-1.5-pro
+TRIKERNEL_TIMEZONE=Asia/Tokyo
 ```
 
 ### Tests
@@ -122,7 +128,7 @@ uv pip install -e .
 
 ```python
 from ui.terminal import TerminalUI
-from trikernel.session import TrikernelSession
+from trikernel import TrikernelSession
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel
 from trikernel.tool_kernel.ollama import ToolOllamaLLM
@@ -172,7 +178,7 @@ if __name__ == "__main__":
 ### タスクの payload 形式
 
 - `user_request`: `{"user_message": "..."}`
-- `work`: `{"message": "..."}`（worker/runner がこのメッセージを解釈します）
+- `work`: `{"message": "...", "run_at": "...", "repeat_interval_seconds": 3600, "repeat_enabled": true}`（worker/runner がこのメッセージを解釈します。スケジュール系は任意）
 
 ### Work タスク（バックグラウンド）
 
@@ -183,8 +189,11 @@ payload の内容は任意で、worker/runner がツールを使って処理す�
 task_id = session.create_work_task(
     {"message": "https://example.com を読んで要約して保存してください"},
     run_at="2025-01-01T12:00:00+00:00",
+    repeat_every_seconds=3600,
+    repeat_enabled=True,
 )
 ```
+定期実行の間隔は最小1時間です。
 
 ### 環境変数
 
@@ -196,10 +205,13 @@ OLLAMA_MODEL=qwen3:8b
 OLLAMA_SMALL_MODEL=qwen3:4b
 OLLAMA_EMBED_MODEL=nomic-embed-text
 work_space_dir=/path/to/workspace
+GOOGLE_API_KEY=your_api_key
+GEMINI_MODEL=gemini-1.5-pro
+TRIKERNEL_TIMEZONE=Asia/Tokyo
 ```
 
 ### テスト
 
 ```bash
-python -m pytest
+uv run python -m pytest
 ```
