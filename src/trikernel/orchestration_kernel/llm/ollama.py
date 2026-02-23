@@ -4,8 +4,8 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.tools import BaseTool
 
-from trikernel.orchestration_kernel.protocols import LLMAPI
 
 from ..logging import get_logger
 from ..models import LLMResponse, LLMToolCall
@@ -17,12 +17,11 @@ from .message_builders import (
     to_langchain_tools,
 )
 from ...state_kernel.models import Task
-from ...tool_kernel.structured_tool import TrikernelStructuredTool
 
 logger = get_logger(__name__)
 
 
-class OllamaLLM(LLMAPI):
+class OllamaLLM:
     def __init__(
         self,
         config: Optional[OllamaConfig] = None,
@@ -39,28 +38,22 @@ class OllamaLLM(LLMAPI):
             base_url=self.config.base_url,
         )
 
-    def generate(self, task: Task, tools: List[TrikernelStructuredTool]) -> LLMResponse:
+    def generate(self, task: Task, tools: List[BaseTool]) -> LLMResponse:
         response = self._chat(task, tools, stream=False)
         self._last_response = response
         return response
 
-    def stream_chunks(
-        self, task: Task, tools: List[TrikernelStructuredTool]
-    ) -> Iterable[str]:
+    def stream_chunks(self, task: Task, tools: List[BaseTool]) -> Iterable[str]:
         return self._chat_stream(task, tools)
 
-    def collect_stream(
-        self, task: Task, tools: List[TrikernelStructuredTool]
-    ) -> Tuple[LLMResponse, List[str]]:
+    def collect_stream(self, task: Task, tools: List[BaseTool]) -> Tuple[LLMResponse, List[str]]:
         chunks: List[str] = []
         for chunk in self.stream_chunks(task, tools):
             chunks.append(chunk)
         response = self._last_response or LLMResponse(user_output="", tool_calls=[])
         return response, chunks
 
-    def _chat(
-        self, task: Task, tools: List[TrikernelStructuredTool], stream: bool
-    ) -> LLMResponse:
+    def _chat(self, task: Task, tools: List[BaseTool], stream: bool) -> LLMResponse:
         self._logger.info("Ollama request model=%s stream=%s", self.model, stream)
         messages = build_messages(task)
         langchain_tools = to_langchain_tools(tools)
@@ -71,9 +64,7 @@ class OllamaLLM(LLMAPI):
             response = self._client.invoke(messages)
         return parse_response(response)
 
-    def _chat_stream(
-        self, task: Task, tools: List[TrikernelStructuredTool]
-    ) -> Iterable[str]:
+    def _chat_stream(self, task: Task, tools: List[BaseTool]) -> Iterable[str]:
         self._logger.info("Ollama stream model=%s", self.model)
         tool_calls: List[LLMToolCall] = []
         content_chunks: List[str] = []

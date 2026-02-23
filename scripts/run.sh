@@ -1,1 +1,1 @@
-uv run -m trikernel.composition.main
+uv run python examples/main.py

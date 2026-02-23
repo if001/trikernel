@@ -4,24 +4,14 @@ import asyncio
 import os
 from dotenv import load_dotenv
 
-
 from ui.discord_client_ui import DiscordBot, get_intents
-from trikernel.orchestration_kernel import (
-    OllamaLLM,
-    SingleTurnRunner,
-    PDCARunner,
-    ToolLoopRunner,
-    get_logger,
-)
+from trikernel.orchestration_kernel import OllamaLLM, LangGraphToolLoopRunner, get_logger
 from trikernel.execution.session import TrikernelSession
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel
 from trikernel.tool_kernel.ollama import ToolOllamaLLM
 from trikernel.tool_kernel.registry import register_default_tools
-
-from pathlib import Path
-
-from trikernel.tool_kernel.dsl import build_tools_from_dsl
+from tools.web_tools import build_web_tools
 
 logger = get_logger("discord_client")
 load_dotenv()
@@ -36,22 +26,7 @@ DISCORD_READ_CHANNEL_ID = int(os.getenv("DISCORD_READ_CHANNEL_ID", -1))
 # Messages in this channel enqueue work tasks.
 
 
-from tools.web_tools import web_list, web_page, web_page_ref, web_query
-
-
-def build_web_tools():
-    dsl_path = Path(__file__).resolve().parent / "tools" / "web_tools.yaml"
-    function_map = {
-        "web.query": web_query,
-        "web.list": web_list,
-        "web.page": web_page,
-        "web.page_ref": web_page_ref,
-    }
-    tools = build_tools_from_dsl(dsl_path, function_map)
-    return tools
-
-
-async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
+async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
     logger.info("runner_loop")
     llm = OllamaLLM()
     tool_llm = ToolOllamaLLM()
@@ -59,9 +34,8 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
     tool_kernel = ToolKernel(re_index=False)
     register_default_tools(tool_kernel)
 
-    tools = build_web_tools()
-    for tool in tools:
-        tool_kernel.tool_register(tool.definition, tool.handler)
+    for tool, handler in build_web_tools():
+        tool_kernel.tool_register(tool, handler)
 
     session = TrikernelSession(state, tool_kernel, runner, llm, tool_llm)
     session.start_workers()
@@ -117,7 +91,7 @@ async def runner_loop(ui: DiscordBot, runner: ToolLoopRunner) -> None:
 
 
 def main() -> None:
-    runner = ToolLoopRunner()
+    runner = LangGraphToolLoopRunner()
     intents = get_intents()
     ui = DiscordBot(intents=intents, runner_loop=lambda bot: runner_loop(bot, runner))
     if not TOKEN:

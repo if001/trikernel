@@ -5,20 +5,19 @@ from typing import Any, Dict, Optional, Sequence
 
 from langchain_core.messages import BaseMessage
 
-from ..state_kernel.models import Turn
 
 
 @dataclass(frozen=True)
 class LLMInput:
     message: Optional[str] = None
     messages: Optional[Sequence[BaseMessage]] = None
-    history: Optional[Sequence[Turn | Dict[str, Any] | BaseMessage]] = None
+    history: Optional[Sequence[Dict[str, Any] | BaseMessage]] = None
 
 
 def build_llm_payload(
     message: Optional[str] = None,
     messages: Optional[Sequence[BaseMessage]] = None,
-    history: Optional[Sequence[Turn | Dict[str, Any] | BaseMessage]] = None,
+    history: Optional[Sequence[Dict[str, Any] | BaseMessage]] = None,
 ) -> Dict[str, Any]:
     llm_input: Dict[str, Any] = {}
     if message is not None:

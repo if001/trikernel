@@ -3,9 +3,8 @@ import asyncio
 from trikernel.execution.worker import WorkWorker
 from trikernel.execution.transports import ResultSender, WorkReceiver
 from trikernel.state_kernel.kernel import StateKernel
-from trikernel.orchestration_kernel.models import LLMResponse, RunnerContext, RunResult
-from trikernel.orchestration_kernel.protocols import LLMAPI, Runner
-from trikernel.tool_kernel.protocols import ToolAPI, ToolLLMAPI
+from trikernel.state_kernel.message_store import LangGraphMessageStore, MessageStoreConfig
+from trikernel.orchestration_kernel.models import RunResult
 
 
 class FakeWorkReceiver(WorkReceiver):
@@ -34,11 +33,8 @@ class FakeResultSender(ResultSender):
         self.sent.append(payload)
 
 
-class DummyToolAPI(ToolAPI):
-    def tool_register(self, tool_definition, handler) -> None:
-        return None
-
-    def tool_register_structured(self, tool_definition, tool) -> None:
+class DummyToolAPI:
+    def tool_register(self, tool, handler=None) -> None:
         return None
 
     def tool_describe(self, tool_name):
@@ -60,7 +56,7 @@ class DummyToolAPI(ToolAPI):
         return []
 
 
-class DummyLLM(LLMAPI):
+class DummyLLM:
     def generate(self, task, tools):
         return LLMResponse(user_output="ok", tool_calls=[])
 
@@ -68,18 +64,20 @@ class DummyLLM(LLMAPI):
         return LLMResponse(user_output="ok", tool_calls=[]), []
 
 
-class DummyRunner(Runner):
+class DummyRunner:
     def run(self, task, runner_context):
         return RunResult(user_output="done", task_state="done")
 
 
 def test_worker_sends_result(tmp_path):
     state = StateKernel(data_dir=tmp_path)
+    message_store = LangGraphMessageStore(MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite"))
     task_id = state.task_create("work", {"message": "do"})
     receiver = FakeWorkReceiver({"task_id": task_id})
     sender = FakeResultSender()
     worker = WorkWorker(
         state_api=state,
+        message_store=message_store,
         tool_api=DummyToolAPI(),
         runner=DummyRunner(),
         llm_api=DummyLLM(),

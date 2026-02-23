@@ -13,10 +13,10 @@ from .dispatcher import DispatchConfig, WorkDispatcher
 from .worker import WorkWorker
 from .loop import ExecutionLoop, LoopConfig
 from ..orchestration_kernel.models import RunResult, RunnerContext
-from ..orchestration_kernel.protocols import LLMAPI, Runner
 from ..state_kernel.models import Task
-from ..state_kernel.protocols import StateKernelAPI
-from ..tool_kernel.protocols import ToolAPI, ToolLLMAPI
+from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
+from ..state_kernel.message_store import load_message_store
+from ..tool_kernel.kernel import ToolKernel
 from .payloads import UserRequestPayload, WorkPayload
 
 logger = get_logger(__name__)
@@ -35,10 +35,11 @@ class TrikernelSession:
     def __init__(
         self,
         state_api: StateKernelAPI,
-        tool_api: ToolAPI,
-        runner: Runner,
-        llm_api: LLMAPI,
-        tool_llm_api: Optional[ToolLLMAPI] = None,
+        tool_api: ToolKernel,
+        runner: object,
+        llm_api: object,
+        tool_llm_api: Optional[object] = None,
+        message_store: Optional[MessageStoreAPI] = None,
         conversation_id: str = "default",
         runner_id: str = "main",
         claim_ttl_seconds: int = 30,
@@ -49,6 +50,7 @@ class TrikernelSession:
         self._runner = runner
         self._llm_api = llm_api
         self._tool_llm_api = tool_llm_api
+        self._message_store = message_store or load_message_store()
         self._conversation_id = conversation_id
         self._runner_id = runner_id
         self._claim_ttl_seconds = claim_ttl_seconds
@@ -63,9 +65,6 @@ class TrikernelSession:
     def send_message(self, message: str, stream: bool = False) -> MessageResult:
         task_id = self._state_api.task_create(
             "user_request", UserRequestPayload(user_message=message).to_dict()
-        )
-        turn_id = self._state_api.turn_append_user(
-            self._conversation_id, message, task_id
         )
         claimed_id = self._state_api.task_claim(
             {"task_id": task_id}, self._runner_id, self._claim_ttl_seconds
@@ -102,12 +101,6 @@ class TrikernelSession:
         if result.stream_chunks:
             assistant_message = "".join(result.stream_chunks) or assistant_message
         self._finalize_task(task, result)
-        self._state_api.turn_set_assistant(
-            turn_id,
-            assistant_message,
-            result.artifact_refs,
-            {"task_state": result.task_state},
-        )
         return MessageResult(
             message=assistant_message,
             task_state=result.task_state,
@@ -167,6 +160,7 @@ class TrikernelSession:
         self._dispatcher = WorkDispatcher(self._state_api, config=dispatch_config)
         self._worker = WorkWorker(
             state_api=self._state_api,
+            message_store=self._message_store,
             tool_api=self._tool_api,
             runner=self._runner,
             llm_api=self._llm_api,
@@ -205,7 +199,9 @@ class TrikernelSession:
     def _run_task(self, task: Task, stream: bool) -> RunResult:
         context = RunnerContext(
             runner_id=self._runner_id,
+            conversation_id=self._conversation_id,
             state_api=self._state_api,
+            message_store=self._message_store,
             tool_api=self._tool_api,
             llm_api=self._llm_api,
             tool_llm_api=self._tool_llm_api,

@@ -4,9 +4,8 @@ from dataclasses import dataclass, field
 import json
 from typing import Any, Dict, List, Optional
 
-from ..state_kernel.protocols import StateKernelAPI
-from ..tool_kernel.protocols import ToolAPI, ToolLLMAPI
-from .protocols import LLMAPI
+from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
+from ..tool_kernel.kernel import ToolKernel
 
 
 @dataclass
@@ -26,10 +25,12 @@ class LLMResponse:
 @dataclass
 class RunnerContext:
     runner_id: str
+    conversation_id: str
     state_api: StateKernelAPI
-    tool_api: ToolAPI
-    llm_api: LLMAPI
-    tool_llm_api: ToolLLMAPI | None = None
+    message_store: MessageStoreAPI
+    tool_api: ToolKernel
+    llm_api: object
+    tool_llm_api: object | None = None
     stream: bool = False
 
 

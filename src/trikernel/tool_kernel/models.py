@@ -1,19 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from dataclasses import dataclass
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .protocols import ToolLLMAPI
-
-
-@dataclass
-class ToolDefinition:
-    tool_name: str
-    description: str
-    input_schema: Dict[str, Any]
-    output_schema: Dict[str, Any]
-    effects: List[str] = field(default_factory=list)
+    from ..state_kernel.protocols import MessageStoreAPI
 
 
 @dataclass
@@ -22,7 +13,8 @@ class ToolContext:
     task_id: str | None
     state_api: Any
     now: str
-    llm_api: Optional["ToolLLMAPI"] = None
+    llm_api: Optional[Any] = None
+    message_store: Optional["MessageStoreAPI"] = None
 
 
 @dataclass

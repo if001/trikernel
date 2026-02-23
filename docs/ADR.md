@@ -6,7 +6,7 @@ Active.
 ## Context
 Trikernel is a library for running LLM-driven tasks with tools, background
 workers, and artifact storage. Requirements include kernel separation, tool
-DSL registration, and safe task execution with clear status transitions.
+registration via StructuredTool, and safe task execution with clear status transitions.
 
 ## Decisions
 
@@ -40,7 +40,7 @@ the core state model.
 
 **Consequences**:
 - Execution reads schedule from payload.
-- DSL schemas document scheduling fields.
+- Tool schemas document scheduling fields.
 
 ### ADR-004: Centralized status transitions in execution
 **Decision**: Execution layer owns state transitions and fallbacks
@@ -52,14 +52,14 @@ the core state model.
 - Dispatcher and session manage transitions.
 - Queued tasks expire (max 1 day).
 
-### ADR-005: Tool input validation uses DSL schema
-**Decision**: Validate tool inputs against JSON schema-like DSL, including
-`required` and `oneOf/anyOf/allOf`.
+### ADR-005: Tool input validation uses StructuredTool schemas
+**Decision**: Define tool schemas via `StructuredTool.from_function` and
+Pydantic args schemas.
 
-**Rationale**: Provide consistent validation across tools.
+**Rationale**: Keep schemas close to implementations and aligned with LangChain.
 
 **Consequences**:
-- Validation runs on every tool invoke.
+- Input validation is handled by the tool schema.
 - Invalid args return errors (no tool execution).
 
 ### ADR-006: Tool context as last argument
@@ -70,7 +70,7 @@ implementations).
 and execution context.
 
 **Consequences**:
-- Tool DSL does not expose `context`.
+- Tool schema does not expose `context`.
 - Tool kernel injects `context` at call time.
 
 ### ADR-007: Logging and error handling policy

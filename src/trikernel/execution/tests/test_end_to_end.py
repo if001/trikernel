@@ -5,9 +5,8 @@ from trikernel.execution.dispatcher import DispatchConfig, WorkDispatcher
 from trikernel.execution.worker import WorkWorker
 from trikernel.execution.transports import ResultReceiver, ResultSender, WorkReceiver, WorkSender
 from trikernel.state_kernel.kernel import StateKernel
+from trikernel.state_kernel.message_store import LangGraphMessageStore, MessageStoreConfig
 from trikernel.orchestration_kernel.models import RunResult
-from trikernel.orchestration_kernel.protocols import Runner
-from trikernel.tool_kernel.protocols import ToolAPI
 
 
 class InMemoryChannel(WorkSender, WorkReceiver, ResultSender, ResultReceiver):
@@ -28,11 +27,8 @@ class InMemoryChannel(WorkSender, WorkReceiver, ResultSender, ResultReceiver):
         return self._queue.pop(0)
 
 
-class DummyToolAPI(ToolAPI):
-    def tool_register(self, tool_definition, handler) -> None:
-        return None
-
-    def tool_register_structured(self, tool_definition, tool) -> None:
+class DummyToolAPI:
+    def tool_register(self, tool, handler=None) -> None:
         return None
 
     def tool_describe(self, tool_name):
@@ -54,18 +50,21 @@ class DummyToolAPI(ToolAPI):
         return []
 
 
-class DummyRunner(Runner):
+class DummyRunner:
     def run(self, task, runner_context):
         return RunResult(user_output="done", task_state="done")
 
 
-class FailingRunner(Runner):
+class FailingRunner:
     def run(self, task, runner_context):
         raise RuntimeError("boom")
 
 
 def test_work_task_end_to_end(tmp_path):
     state = StateKernel(data_dir=tmp_path)
+    message_store = LangGraphMessageStore(
+        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
+    )
     work_channel = InMemoryChannel()
     result_channel = InMemoryChannel()
     dispatcher = WorkDispatcher(
@@ -76,6 +75,7 @@ def test_work_task_end_to_end(tmp_path):
     )
     worker = WorkWorker(
         state_api=state,
+        message_store=message_store,
         tool_api=DummyToolAPI(),
         runner=DummyRunner(),
         llm_api=None,
@@ -100,6 +100,9 @@ def test_work_task_end_to_end(tmp_path):
 
 def test_work_task_failure_marks_failed(tmp_path):
     state = StateKernel(data_dir=tmp_path)
+    message_store = LangGraphMessageStore(
+        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
+    )
     work_channel = InMemoryChannel()
     result_channel = InMemoryChannel()
     dispatcher = WorkDispatcher(
@@ -110,6 +113,7 @@ def test_work_task_failure_marks_failed(tmp_path):
     )
     worker = WorkWorker(
         state_api=state,
+        message_store=message_store,
         tool_api=DummyToolAPI(),
         runner=FailingRunner(),
         llm_api=None,

@@ -8,9 +8,8 @@ from trikernel.execution.worker import WorkWorker
 from trikernel.execution.session import TrikernelSession
 from trikernel.execution.transports import ResultReceiver, ResultSender, WorkReceiver, WorkSender
 from trikernel.orchestration_kernel.models import RunResult
-from trikernel.orchestration_kernel.protocols import Runner
 from trikernel.state_kernel.kernel import StateKernel
-from trikernel.tool_kernel.protocols import ToolAPI
+from trikernel.state_kernel.message_store import LangGraphMessageStore, MessageStoreConfig
 
 
 class ThreadSafeChannel(WorkSender, WorkReceiver, ResultSender, ResultReceiver):
@@ -31,11 +30,8 @@ class ThreadSafeChannel(WorkSender, WorkReceiver, ResultSender, ResultReceiver):
             return None
 
 
-class DummyToolAPI(ToolAPI):
-    def tool_register(self, tool_definition, handler) -> None:
-        return None
-
-    def tool_register_structured(self, tool_definition, tool) -> None:
+class DummyToolAPI:
+    def tool_register(self, tool, handler=None) -> None:
         return None
 
     def tool_describe(self, tool_name):
@@ -57,7 +53,7 @@ class DummyToolAPI(ToolAPI):
         return []
 
 
-class StaticRunner(Runner):
+class StaticRunner:
     def __init__(self, output: str) -> None:
         self._output = output
 
@@ -65,7 +61,7 @@ class StaticRunner(Runner):
         return RunResult(user_output=self._output, task_state="done")
 
 
-class BlockingRunner(Runner):
+class BlockingRunner:
     def __init__(self, event: threading.Event, output: str) -> None:
         self._event = event
         self._output = output
@@ -81,10 +77,15 @@ def _run_async(coro) -> None:
 
 def test_async_flow_main_worker_serial(tmp_path):
     state = StateKernel(data_dir=tmp_path)
+    message_store = LangGraphMessageStore(
+        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
+    )
     tool_api = DummyToolAPI()
     main_runner = StaticRunner("main done")
     worker_runner = StaticRunner("work done")
-    session = TrikernelSession(state, tool_api, main_runner, llm_api=None)
+    session = TrikernelSession(
+        state, tool_api, main_runner, llm_api=None, message_store=message_store
+    )
 
     work_channel = ThreadSafeChannel()
     result_channel = ThreadSafeChannel()
@@ -96,6 +97,7 @@ def test_async_flow_main_worker_serial(tmp_path):
     )
     worker = WorkWorker(
         state_api=state,
+        message_store=message_store,
         tool_api=tool_api,
         runner=worker_runner,
         llm_api=None,
@@ -119,11 +121,16 @@ def test_async_flow_main_worker_serial(tmp_path):
 
 def test_async_flow_main_and_worker_parallel(tmp_path):
     state = StateKernel(data_dir=tmp_path)
+    message_store = LangGraphMessageStore(
+        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
+    )
     tool_api = DummyToolAPI()
     main_runner = StaticRunner("main done")
     release = threading.Event()
     worker_runner = BlockingRunner(release, "work done")
-    session = TrikernelSession(state, tool_api, main_runner, llm_api=None)
+    session = TrikernelSession(
+        state, tool_api, main_runner, llm_api=None, message_store=message_store
+    )
 
     work_channel = ThreadSafeChannel()
     result_channel = ThreadSafeChannel()
@@ -135,6 +142,7 @@ def test_async_flow_main_and_worker_parallel(tmp_path):
     )
     worker = WorkWorker(
         state_api=state,
+        message_store=message_store,
         tool_api=tool_api,
         runner=worker_runner,
         llm_api=None,

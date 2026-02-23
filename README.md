@@ -8,7 +8,8 @@ Trikernel is a three-kernel architecture for building LLM agents. It separates s
 
 - Three-kernel separation: state, tool, orchestration.
 - High-level `TrikernelSession` to hide task lifecycle details.
-- Tools defined via DSL + Python functions.
+- Tools defined as LangChain `StructuredTool` objects.
+- LangMem-backed semantic/episodic/procedural memory tools (persistent store).
 - LLM via LangChain + Ollama.
 
 ### Install
@@ -26,7 +27,7 @@ from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel
 from trikernel.tool_kernel.ollama import ToolOllamaLLM
 from trikernel.tool_kernel.registry import register_default_tools
-from trikernel.orchestration_kernel import OllamaLLM, ToolLoopRunner
+from trikernel.orchestration_kernel import OllamaLLM, LangGraphToolLoopRunner
 
 
 def main() -> None:
@@ -35,7 +36,7 @@ def main() -> None:
     tool_kernel = ToolKernel()
     register_default_tools(tool_kernel)
 
-    runner = ToolLoopRunner()
+    runner = LangGraphToolLoopRunner()
     llm = OllamaLLM()
     tool_llm = ToolOllamaLLM()
     session = TrikernelSession(state, tool_kernel, runner, llm, tool_llm)
@@ -58,15 +59,11 @@ if __name__ == "__main__":
     main()
 ```
 
-### Adding Tools (DSL + Python)
+### Adding Tools (StructuredTool)
 
-1. Define the tool in a DSL file (YAML).
-2. Implement the function in Python.
-3. Register the tool via `build_tools_from_dsl`.
-
-Note: Tool implementations should accept `context` as the last argument. It is injected by the kernel at runtime and provides access to state APIs and other execution context via `ToolContext`.
-
-Core DSL files live under `src/trikernel/tool_kernel/dsl`.
+1. Define a `StructuredTool` with `StructuredTool.from_function`.
+2. Implement the function in Python (accept `context` as the last argument).
+3. Register the tool with `ToolKernel.tool_register`.
 
 ### Task Payload Schemas
 
@@ -101,6 +98,9 @@ work_space_dir=/path/to/workspace
 GOOGLE_API_KEY=your_api_key
 GEMINI_MODEL=gemini-1.5-pro
 TRIKERNEL_TIMEZONE=Asia/Tokyo
+TRIKERNEL_MEMORY_STORE_PATH=.state/memory_store.json
+TRIKERNEL_MEMORY_INDEX_DIR=.state/memory_index
+TRIKERNEL_CHECKPOINT_PATH=.state/checkpoints.sqlite
 ```
 
 ### Tests
@@ -115,7 +115,8 @@ python -m pytest
 
 - 状態・ツール・オーケストレーションの三分割アーキテクチャ。
 - `TrikernelSession` によりタスクの作成/claim/完了などを隠蔽。
-- DSL + Python 関数でツールを追加可能。
+- `StructuredTool` でツールを追加可能。
+- LangMem によるセマンティック/エピソード/手続き的メモリ（永続ストア）。
 - LLM は LangChain 経由で Ollama を使用。
 
 ### インストール
@@ -133,7 +134,7 @@ from trikernel.state_kernel.kernel import StateKernel
 from trikernel.tool_kernel.kernel import ToolKernel
 from trikernel.tool_kernel.ollama import ToolOllamaLLM
 from trikernel.tool_kernel.registry import register_default_tools
-from trikernel.orchestration_kernel import OllamaLLM, ToolLoopRunner
+from trikernel.orchestration_kernel import OllamaLLM, LangGraphToolLoopRunner
 
 
 def main() -> None:
@@ -142,7 +143,7 @@ def main() -> None:
     tool_kernel = ToolKernel()
     register_default_tools(tool_kernel)
 
-    runner = ToolLoopRunner()
+    runner = LangGraphToolLoopRunner()
     llm = OllamaLLM()
     tool_llm = ToolOllamaLLM()
     session = TrikernelSession(state, tool_kernel, runner, llm, tool_llm)
@@ -165,15 +166,11 @@ if __name__ == "__main__":
     main()
 ```
 
-### ツール追加（DSL + Python）
+### ツール追加（StructuredTool）
 
-1. DSL（YAML）でツールを定義。
-2. Python で関数を実装。
-3. `build_tools_from_dsl` で登録。
-
-補足: ツール実装の関数は、最後の引数に `context` を追加してください。実行時にカーネルが注入し、`ToolContext` 経由で state API などにアクセスできます。
-
-コアの DSL は `src/trikernel/tool_kernel/dsl` にあります。
+1. `StructuredTool.from_function` でツールを定義。
+2. Python で関数を実装（最後の引数は `context`）。
+3. `ToolKernel.tool_register` で登録。
 
 ### タスクの payload 形式
 

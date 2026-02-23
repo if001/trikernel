@@ -2,16 +2,12 @@ import time
 
 from trikernel.execution.session import TrikernelSession
 from trikernel.orchestration_kernel.models import RunResult
-from trikernel.orchestration_kernel.protocols import Runner
 from trikernel.state_kernel.kernel import StateKernel
-from trikernel.tool_kernel.protocols import ToolAPI
+from trikernel.state_kernel.message_store import LangGraphMessageStore, MessageStoreConfig
 
 
-class DummyToolAPI(ToolAPI):
-    def tool_register(self, tool_definition, handler) -> None:
-        return None
-
-    def tool_register_structured(self, tool_definition, tool) -> None:
+class DummyToolAPI:
+    def tool_register(self, tool, handler=None) -> None:
         return None
 
     def tool_describe(self, tool_name):
@@ -33,7 +29,7 @@ class DummyToolAPI(ToolAPI):
         return []
 
 
-class SleepRunner(Runner):
+class SleepRunner:
     def __init__(self, sleep_seconds: float) -> None:
         self.sleep_seconds = sleep_seconds
 
@@ -52,12 +48,16 @@ class DummyLLM:
 
 def test_main_runner_timeout_marks_failed(tmp_path):
     state = StateKernel(data_dir=tmp_path)
+    message_store = LangGraphMessageStore(
+        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
+    )
     session = TrikernelSession(
         state_api=state,
         tool_api=DummyToolAPI(),
         runner=SleepRunner(0.2),
         llm_api=DummyLLM(),
         tool_llm_api=None,
+        message_store=message_store,
         main_runner_timeout_seconds=0.05,
     )
     result = session.send_message("hello")
@@ -72,19 +72,23 @@ class FailClaimStateKernel(StateKernel):
         return None
 
 
-class RaisingRunner(Runner):
+class RaisingRunner:
     def run(self, task, runner_context):
         raise RuntimeError("fail")
 
 
 def test_claim_failure_marks_failed(tmp_path):
     state = FailClaimStateKernel(data_dir=tmp_path)
+    message_store = LangGraphMessageStore(
+        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
+    )
     session = TrikernelSession(
         state_api=state,
         tool_api=DummyToolAPI(),
         runner=SleepRunner(0),
         llm_api=DummyLLM(),
         tool_llm_api=None,
+        message_store=message_store,
     )
     result = session.send_message("hello")
     assert result.task_state == "failed"
@@ -96,12 +100,16 @@ def test_claim_failure_marks_failed(tmp_path):
 def test_notification_drain_marks_done(tmp_path):
     state = StateKernel(data_dir=tmp_path)
     state.task_create("notification", {"message": "ping"})
+    message_store = LangGraphMessageStore(
+        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
+    )
     session = TrikernelSession(
         state_api=state,
         tool_api=DummyToolAPI(),
         runner=SleepRunner(0),
         llm_api=DummyLLM(),
         tool_llm_api=None,
+        message_store=message_store,
     )
     messages = session.drain_notifications()
     assert messages == ["ping"]
@@ -111,12 +119,16 @@ def test_notification_drain_marks_done(tmp_path):
 
 def test_main_runner_exception_marks_failed(tmp_path):
     state = StateKernel(data_dir=tmp_path)
+    message_store = LangGraphMessageStore(
+        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
+    )
     session = TrikernelSession(
         state_api=state,
         tool_api=DummyToolAPI(),
         runner=RaisingRunner(),
         llm_api=DummyLLM(),
         tool_llm_api=None,
+        message_store=message_store,
     )
     result = session.send_message("hello")
     assert result.task_state == "failed"

@@ -6,9 +6,9 @@ from typing import Any, Dict, List, Optional
 
 from trikernel.utils.logging import get_logger
 
-from .file_store import JsonFileArtifactStore, JsonFileTaskStore, JsonFileTurnStore
-from .models import Artifact, Task, TaskType, Turn
-from .protocols import ArtifactStore, StateKernelAPI, TaskStore, TurnStore
+from .file_store import JsonFileArtifactStore, JsonFileTaskStore
+from .models import Artifact, Task, TaskType
+from .protocols import ArtifactStore, StateKernelAPI, TaskStore
 
 logger = get_logger(__name__)
 
@@ -18,14 +18,12 @@ class StateKernel(StateKernelAPI):
         self,
         task_store: Optional[TaskStore] = None,
         artifact_store: Optional[ArtifactStore] = None,
-        turn_store: Optional[TurnStore] = None,
         data_dir: Optional[Path] = None,
     ) -> None:
         if data_dir is None:
             data_dir = Path(".state")
         self._task_store = task_store or JsonFileTaskStore(data_dir)
         self._artifact_store = artifact_store or JsonFileArtifactStore(data_dir)
-        self._turn_store = turn_store or JsonFileTurnStore(data_dir)
 
     def task_create(self, task_type: TaskType, payload: Dict[str, Any]) -> str:
         logger.info(f"task_create: {task_type}, {payload}")
@@ -77,27 +75,3 @@ class StateKernel(StateKernelAPI):
 
     def artifact_search(self, query: Dict[str, Any]) -> List[Artifact]:
         return list(self._artifact_store.search(query))
-
-    def turn_append_user(
-        self,
-        conversation_id: str,
-        user_message: str,
-        related_task_id: Optional[str],
-    ) -> str:
-        return self._turn_store.append_user(
-            conversation_id, user_message, related_task_id
-        ).turn_id
-
-    def turn_set_assistant(
-        self,
-        turn_id: str,
-        assistant_message: str,
-        artifacts: List[str],
-        metadata: Dict[str, Any],
-    ) -> Optional[Turn]:
-        return self._turn_store.set_assistant(
-            turn_id, assistant_message, artifacts, metadata
-        )
-
-    def turn_list_recent(self, conversation_id: str, limit: int) -> List[Turn]:
-        return self._turn_store.list_recent(conversation_id, limit)

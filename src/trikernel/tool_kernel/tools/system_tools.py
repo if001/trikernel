@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel
+
 from ..models import ToolContext
 from ..prompts import build_step_goal_prompt
+from .structured_tools import build_structured_tool
 
 
 def _require_state_api(context: ToolContext) -> Any:
@@ -13,9 +17,14 @@ def _require_state_api(context: ToolContext) -> Any:
     return context.state_api
 
 
+class StepGoalArgs(BaseModel):
+    previous_goal: Optional[str] = None
+    step_context: Optional[Dict[str, object]] = None
+    user_message: Optional[str] = None
+    failure_reason: Optional[str] = None
+
+
 def step_goal(
-    conversation_id: str = "default",
-    history_limit: int = 5,
     previous_goal: Optional[str] = None,
     step_context: Optional[Dict[str, Any]] = None,
     user_message: Optional[str] = None,
@@ -29,9 +38,6 @@ def step_goal(
     task = state_api.task_get(context.task_id)
     if not task:
         return {"step_goal": "", "error": "task_not_found"}
-    history = []
-    if context.runner_id == "main" and conversation_id:
-        history = state_api.turn_list_recent(conversation_id, history_limit)
     payload = task.payload or {}
     fallback_goal = (
         payload.get("step_goal")
@@ -51,7 +57,7 @@ def step_goal(
         step_context=step_context,
         user_message=user_message,
         task_payload=payload,
-        history=[t.to_dict() for t in history],
+        history=[],
     )
     response_text = llm_api.generate(prompt, [])
     try:
@@ -64,5 +70,15 @@ def step_goal(
     }
 
 
-def system_tool_functions() -> Dict[str, Any]:
-    return {"step.goal": step_goal}
+def build_system_tools() -> list[tuple[BaseTool, Any]]:
+    return [
+        (
+            build_structured_tool(
+                step_goal,
+                name="step.goal",
+                description="Generate or refine the next step goal.",
+                args_schema=StepGoalArgs,
+            ),
+            step_goal,
+        )
+    ]

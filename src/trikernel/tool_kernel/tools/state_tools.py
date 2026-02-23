@@ -3,13 +3,114 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field
+from langchain_core.tools import BaseTool
+
 from ..models import ToolContext
+from .structured_tools import build_structured_tool
 
 
 def _require_state_api(context: ToolContext) -> Any:
     if context is None or context.state_api is None:
         raise ValueError("state_api is required in ToolContext")
     return context.state_api
+
+
+class UserRequestPayload(BaseModel):
+    user_message: str = Field(..., description="User message for the main runner.")
+
+
+class WorkPayload(BaseModel):
+    message: str = Field(..., description="Work instruction message for the worker.")
+    run_at: Optional[str] = Field(
+        default=None, description="ISO8601 timestamp for scheduling."
+    )
+    repeat_interval_seconds: Optional[int] = Field(
+        default=None, description="Repeat interval in seconds (>= 3600)."
+    )
+    repeat_enabled: Optional[bool] = Field(
+        default=None, description="Whether repeating work is enabled."
+    )
+
+
+class NotificationPayload(BaseModel):
+    message: str = Field(..., description="Notification message to deliver.")
+    severity: Optional[str] = Field(default=None, description="Optional severity.")
+    related_task_id: Optional[str] = Field(
+        default=None, description="Related task id, if any."
+    )
+
+
+class TaskCreateUserRequestArgs(BaseModel):
+    payload: UserRequestPayload
+
+
+class TaskCreateWorkArgs(BaseModel):
+    payload: WorkPayload
+
+
+class TaskCreateWorkAtArgs(BaseModel):
+    payload: WorkPayload
+
+
+class TaskCreateWorkRepeatArgs(BaseModel):
+    payload: WorkPayload
+
+
+class TaskCreateNotificationArgs(BaseModel):
+    payload: NotificationPayload
+
+
+class TaskUpdateArgs(BaseModel):
+    task_id: str
+    patch: Dict[str, object]
+
+
+class TaskGetArgs(BaseModel):
+    task_id: str
+
+
+class TaskListArgs(BaseModel):
+    task_type: Optional[str] = None
+    state: Optional[str] = "queued"
+
+
+class TaskClaimArgs(BaseModel):
+    filter_by: Dict[str, object]
+    claimer_id: str
+    ttl_seconds: int
+
+
+class TaskCompleteArgs(BaseModel):
+    task_id: str
+
+
+class TaskFailArgs(BaseModel):
+    task_id: str
+    error_info: Dict[str, object]
+
+
+class ArtifactWriteArgs(BaseModel):
+    media_type: str
+    body: str
+    metadata: Dict[str, object]
+
+
+class ArtifactReadArgs(BaseModel):
+    artifact_id: str
+
+
+class ArtifactExtractArgs(BaseModel):
+    artifact_id: str
+    instructions: str
+
+
+class ArtifactSearchArgs(BaseModel):
+    query: Dict[str, object]
+
+
+class EmptyArgs(BaseModel):
+    pass
 
 
 def task_create_user_request(payload: Dict[str, Any], *, context: ToolContext) -> str:
@@ -159,33 +260,153 @@ def artifact_list(*, context: ToolContext) -> List[Dict[str, Any]]:
     return result
 
 
-def turn_list_recent(
-    conversation_id: str, limit: int, *, context: ToolContext
-) -> List[Dict[str, Any]]:
-    state_api = _require_state_api(context)
-    return [turn.to_dict() for turn in state_api.turn_list_recent(conversation_id, limit)]
-
-
-def state_tool_functions() -> Dict[str, Any]:
-    return {
-        "task.create_user_request": task_create_user_request,
-        "task.create_work": task_create_work,
-        "task.create_work_at": task_create_work_at,
-        "task.create_work_repeat": task_create_work_repeat,
-        "task.create_notification": task_create_notification,
-        "task.update": task_update,
-        "task.get": task_get,
-        "task.list": task_list,
-        "task.claim": task_claim,
-        "task.complete": task_complete,
-        "task.fail": task_fail,
-        "artifact.write": artifact_write,
-        "artifact.read": artifact_read,
-        "artifact.extract": artifact_extract,
-        "artifact.search": artifact_search,
-        "artifact.list": artifact_list,
-        "turn.list_recent": turn_list_recent,
-    }
+def build_state_tools() -> List[tuple[BaseTool, Any]]:
+    return [
+        (
+            build_structured_tool(
+                task_create_user_request,
+                name="task.create_user_request",
+                description="Create a user_request task.",
+                args_schema=TaskCreateUserRequestArgs,
+            ),
+            task_create_user_request,
+        ),
+        (
+            build_structured_tool(
+                task_create_work,
+                name="task.create_work",
+                description="Create a work task.",
+                args_schema=TaskCreateWorkArgs,
+            ),
+            task_create_work,
+        ),
+        (
+            build_structured_tool(
+                task_create_work_at,
+                name="task.create_work_at",
+                description="Create a scheduled work task.",
+                args_schema=TaskCreateWorkAtArgs,
+            ),
+            task_create_work_at,
+        ),
+        (
+            build_structured_tool(
+                task_create_work_repeat,
+                name="task.create_work_repeat",
+                description="Create a repeating work task.",
+                args_schema=TaskCreateWorkRepeatArgs,
+            ),
+            task_create_work_repeat,
+        ),
+        (
+            build_structured_tool(
+                task_create_notification,
+                name="task.create_notification",
+                description="Create a notification task.",
+                args_schema=TaskCreateNotificationArgs,
+            ),
+            task_create_notification,
+        ),
+        (
+            build_structured_tool(
+                task_update,
+                name="task.update",
+                description="Update a task with a patch payload.",
+                args_schema=TaskUpdateArgs,
+            ),
+            task_update,
+        ),
+        (
+            build_structured_tool(
+                task_get,
+                name="task.get",
+                description="Get a task by id.",
+                args_schema=TaskGetArgs,
+            ),
+            task_get,
+        ),
+        (
+            build_structured_tool(
+                task_list,
+                name="task.list",
+                description="List tasks by type/state.",
+                args_schema=TaskListArgs,
+            ),
+            task_list,
+        ),
+        (
+            build_structured_tool(
+                task_claim,
+                name="task.claim",
+                description="Claim a task for execution.",
+                args_schema=TaskClaimArgs,
+            ),
+            task_claim,
+        ),
+        (
+            build_structured_tool(
+                task_complete,
+                name="task.complete",
+                description="Mark a task as complete.",
+                args_schema=TaskCompleteArgs,
+            ),
+            task_complete,
+        ),
+        (
+            build_structured_tool(
+                task_fail,
+                name="task.fail",
+                description="Mark a task as failed.",
+                args_schema=TaskFailArgs,
+            ),
+            task_fail,
+        ),
+        (
+            build_structured_tool(
+                artifact_write,
+                name="artifact.write",
+                description="Write an artifact and return its id.",
+                args_schema=ArtifactWriteArgs,
+            ),
+            artifact_write,
+        ),
+        (
+            build_structured_tool(
+                artifact_read,
+                name="artifact.read",
+                description="Read an artifact by id.",
+                args_schema=ArtifactReadArgs,
+            ),
+            artifact_read,
+        ),
+        (
+            build_structured_tool(
+                artifact_extract,
+                name="artifact.extract",
+                description="Extract information from an artifact using the LLM.",
+                args_schema=ArtifactExtractArgs,
+            ),
+            artifact_extract,
+        ),
+        (
+            build_structured_tool(
+                artifact_search,
+                name="artifact.search",
+                description="Search artifacts by metadata.",
+                args_schema=ArtifactSearchArgs,
+            ),
+            artifact_search,
+        ),
+        (
+            build_structured_tool(
+                artifact_list,
+                name="artifact.list",
+                description="List stored artifacts.",
+                args_schema=EmptyArgs,
+            ),
+            artifact_list,
+        ),
+    ]
 
 
 def _validate_run_at(run_at: str) -> None:

@@ -1,14 +1,16 @@
 from .kernel import StateKernel
-from .models import Artifact, Task, Turn
-from .protocols import ArtifactStore, StateKernelAPI, TaskStore, TurnStore
+from .message_store import LangGraphMessageStore, load_message_store
+from .models import Artifact, Task
+from .protocols import ArtifactStore, MessageStoreAPI, StateKernelAPI, TaskStore
 
 __all__ = [
     "StateKernel",
+    "LangGraphMessageStore",
+    "load_message_store",
     "Artifact",
     "Task",
-    "Turn",
     "ArtifactStore",
+    "MessageStoreAPI",
     "StateKernelAPI",
     "TaskStore",
-    "TurnStore",
 ]

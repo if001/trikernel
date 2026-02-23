@@ -5,8 +5,13 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 from dotenv import load_dotenv
+from pydantic import BaseModel
+from langchain_core.tools import BaseTool
+
 from ..models import ToolContext
+from .structured_tools import build_structured_tool
 
 
 def _workspace_root() -> Path:
@@ -38,6 +43,50 @@ def _ensure_file_size(path: Path, max_bytes: int) -> None:
     size = path.stat().st_size
     if size > max_bytes:
         raise ValueError("file is too large to read")
+
+
+class TreeArgs(BaseModel):
+    path: str = ""
+    max_depth: int = 2
+    include_files: bool = True
+    max_entries: int = 200
+
+
+class StatArgs(BaseModel):
+    path: str
+
+
+class FindArgs(BaseModel):
+    path: str = ""
+    name_pattern: str = "*"
+    max_depth: int = 3
+    file_type: str = "any"
+    max_results: int = 200
+
+
+class RgArgs(BaseModel):
+    pattern: str
+    path: str = ""
+    ignore_case: bool = False
+    max_matches: int = 100
+    file_glob: Optional[str] = None
+
+
+class HeadArgs(BaseModel):
+    path: str
+    lines: int = 10
+    max_bytes: int = 1_000_000
+
+
+class TailArgs(BaseModel):
+    path: str
+    lines: int = 10
+    max_bytes: int = 1_000_000
+
+
+class ReadFileArgs(BaseModel):
+    path: str
+    max_bytes: int = 1_000_000
 
 
 def tree(
@@ -247,13 +296,69 @@ def read_file(
     return {"path": str(target), "content": content}
 
 
-def file_tool_functions() -> Dict[str, Any]:
-    return {
-        "fs.tree": tree,
-        "fs.stat": stat,
-        "fs.find": find,
-        "fs.rg": rg,
-        "fs.head": head,
-        "fs.tail": tail,
-        "fs.read_file": read_file,
-    }
+def build_file_tools() -> List[tuple[BaseTool, Any]]:
+    return [
+        (
+            build_structured_tool(
+                tree,
+                name="fs.tree",
+                description="List files and directories under a path.",
+                args_schema=TreeArgs,
+            ),
+            tree,
+        ),
+        (
+            build_structured_tool(
+                stat,
+                name="fs.stat",
+                description="Get file or directory metadata.",
+                args_schema=StatArgs,
+            ),
+            stat,
+        ),
+        (
+            build_structured_tool(
+                find,
+                name="fs.find",
+                description="Find files or directories by glob pattern.",
+                args_schema=FindArgs,
+            ),
+            find,
+        ),
+        (
+            build_structured_tool(
+                rg,
+                name="fs.rg",
+                description="Search file contents with a regex.",
+                args_schema=RgArgs,
+            ),
+            rg,
+        ),
+        (
+            build_structured_tool(
+                head,
+                name="fs.head",
+                description="Read the first N lines of a file.",
+                args_schema=HeadArgs,
+            ),
+            head,
+        ),
+        (
+            build_structured_tool(
+                tail,
+                name="fs.tail",
+                description="Read the last N lines of a file.",
+                args_schema=TailArgs,
+            ),
+            tail,
+        ),
+        (
+            build_structured_tool(
+                read_file,
+                name="fs.read_file",
+                description="Read a file's content.",
+                args_schema=ReadFileArgs,
+            ),
+            read_file,
+        ),
+    ]

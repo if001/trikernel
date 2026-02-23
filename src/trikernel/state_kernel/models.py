@@ -21,11 +21,6 @@ TaskType = Literal[
     "user_request",
     "work",
     "notification",
-    "pdca.plan",
-    "pdca.do",
-    "pdca.do.followup",
-    "pdca.check",
-    "pdca.discover",
     "tool_loop.step",
     "tool_loop.followup",
     "tool_loop.final",
@@ -97,44 +92,4 @@ class Artifact:
             body=data.get("body", ""),
             metadata=data.get("metadata", {}),
             created_at=data.get("created_at", utc_now()),
-        )
-
-
-@dataclass
-class Turn:
-    turn_id: str
-    conversation_id: str
-    user_message: str
-    assistant_message: Optional[str] = None
-    artifacts: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    related_task_id: Optional[str] = None
-    created_at: str = field(default_factory=utc_now)
-    updated_at: str = field(default_factory=utc_now)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "turn_id": self.turn_id,
-            "conversation_id": self.conversation_id,
-            "user_message": self.user_message,
-            "assistant_message": self.assistant_message,
-            "artifacts": list(self.artifacts),
-            "metadata": self.metadata,
-            "related_task_id": self.related_task_id,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Turn":
-        return cls(
-            turn_id=data["turn_id"],
-            conversation_id=data["conversation_id"],
-            user_message=data.get("user_message", ""),
-            assistant_message=data.get("assistant_message"),
-            artifacts=list(data.get("artifacts", [])),
-            metadata=data.get("metadata", {}),
-            related_task_id=data.get("related_task_id"),
-            created_at=data.get("created_at", utc_now()),
-            updated_at=data.get("updated_at", utc_now()),
         )

@@ -1,28 +1,32 @@
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 
-@runtime_checkable
-class WorkSender(Protocol):
-    async def send_json(self, payload: dict[str, Any]) -> None: ...
+class WorkSender:
+    async def send_json(self, payload: dict[str, Any]) -> None:
+        raise NotImplementedError
 
 
-@runtime_checkable
-class WorkReceiver(Protocol):
-    async def recv_json(self) -> dict[str, Any]: ...
-    async def try_recv_json(self) -> dict[str, Any] | None: ...
+class WorkReceiver:
+    async def recv_json(self) -> dict[str, Any]:
+        raise NotImplementedError
+
+    async def try_recv_json(self) -> dict[str, Any] | None:
+        raise NotImplementedError
 
 
-@runtime_checkable
-class ResultSender(Protocol):
-    async def send_json(self, payload: dict[str, Any]) -> None: ...
+class ResultSender:
+    async def send_json(self, payload: dict[str, Any]) -> None:
+        raise NotImplementedError
 
 
-@runtime_checkable
-class ResultReceiver(Protocol):
-    async def recv_json(self) -> dict[str, Any]: ...
-    async def try_recv_json(self) -> dict[str, Any] | None: ...
+class ResultReceiver:
+    async def recv_json(self) -> dict[str, Any]:
+        raise NotImplementedError
+
+    async def try_recv_json(self) -> dict[str, Any] | None:
+        raise NotImplementedError
 
 
 class ZmqWorkSender(WorkSender):

@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Iterable, List, Optional, Tuple
 
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.tools import BaseTool
 
-from trikernel.orchestration_kernel.protocols import LLMAPI
 
 from ..logging import get_logger
 from ..models import LLMResponse, LLMToolCall
@@ -16,12 +16,11 @@ from .message_builders import (
     to_langchain_tools,
 )
 from ...state_kernel.models import Task
-from ...tool_kernel.structured_tool import TrikernelStructuredTool
 
 logger = get_logger(__name__)
 
 
-class GeminiLLM(LLMAPI):
+class GeminiLLM:
     def __init__(
         self,
         config: Optional[GeminiConfig] = None,
@@ -38,26 +37,22 @@ class GeminiLLM(LLMAPI):
             google_api_key=self.config.api_key,
         )
 
-    def generate(self, task: Task, tools: List[TrikernelStructuredTool]) -> LLMResponse:
+    def generate(self, task: Task, tools: List[BaseTool]) -> LLMResponse:
         response = self._chat(task, tools)
         self._last_response = response
         return response
 
-    def stream_chunks(
-        self, task: Task, tools: List[TrikernelStructuredTool]
-    ) -> Iterable[str]:
+    def stream_chunks(self, task: Task, tools: List[BaseTool]) -> Iterable[str]:
         return self._chat_stream(task, tools)
 
-    def collect_stream(
-        self, task: Task, tools: List[TrikernelStructuredTool]
-    ) -> Tuple[LLMResponse, List[str]]:
+    def collect_stream(self, task: Task, tools: List[BaseTool]) -> Tuple[LLMResponse, List[str]]:
         chunks: List[str] = []
         for chunk in self.stream_chunks(task, tools):
             chunks.append(chunk)
         response = self._last_response or LLMResponse(user_output="", tool_calls=[])
         return response, chunks
 
-    def _chat(self, task: Task, tools: List[TrikernelStructuredTool]) -> LLMResponse:
+    def _chat(self, task: Task, tools: List[BaseTool]) -> LLMResponse:
         self._logger.info("Gemini request model=%s", self.model)
         messages = build_messages(task)
         langchain_tools = to_langchain_tools(tools)
@@ -68,9 +63,7 @@ class GeminiLLM(LLMAPI):
             response = self._client.invoke(messages)
         return parse_response(response)
 
-    def _chat_stream(
-        self, task: Task, tools: List[TrikernelStructuredTool]
-    ) -> Iterable[str]:
+    def _chat_stream(self, task: Task, tools: List[BaseTool]) -> Iterable[str]:
         self._logger.info("Gemini stream model=%s", self.model)
         tool_calls: List[LLMToolCall] = []
         content_chunks: List[str] = []

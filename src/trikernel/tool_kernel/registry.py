@@ -1,32 +1,28 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import Any, Iterable
 
-from .dsl import build_tools_from_dsl
+from langchain_core.tools import BaseTool
+
 from .kernel import ToolKernel
-from .tools.state_tools import state_tool_functions
-from .tools.system_tools import system_tool_functions
-from .tools.writing_tools import writing_tool_functions
-from .tools.user_profile_tools import user_profile_tool_functions
-from .tools.file_tools import file_tool_functions
+from .memory_store import load_memory_store
+from .tools.file_tools import build_file_tools
+from .tools.memory_tools import build_memory_tools
+from .tools.state_tools import build_state_tools
+from .tools.system_tools import build_system_tools
+from .tools.writing_tools import build_writing_tools
 
 
 def register_default_tools(kernel: ToolKernel) -> None:
-    dsl_dir = Path(__file__).resolve().parent / "dsl"
-    state_dsl = dsl_dir / "state_tools.yaml"
-    system_dsl = dsl_dir / "system_tools.yaml"
-    writing_dsl = dsl_dir / "writing_tools.yaml"
-    profile_dsl = dsl_dir / "user_profile_tools.yaml"
-    file_dsl = dsl_dir / "file_tools.yaml"
-    function_map = state_tool_functions()
-    system_tool_map = system_tool_functions()
-    writing_tool_map = writing_tool_functions()
-    profile_tool_map = user_profile_tool_functions()
-    file_tool_map = file_tool_functions()
-    tools = build_tools_from_dsl(state_dsl, function_map)
-    tools += build_tools_from_dsl(system_dsl, system_tool_map)
-    tools += build_tools_from_dsl(writing_dsl, writing_tool_map)
-    tools += build_tools_from_dsl(profile_dsl, profile_tool_map)
-    tools += build_tools_from_dsl(file_dsl, file_tool_map)
-    for tool in tools:
-        kernel.tool_register(tool.definition, tool.handler)
+    tools: Iterable[tuple[BaseTool, Any]] = (
+        build_state_tools()
+        + build_system_tools()
+        + build_writing_tools()
+        + build_file_tools()
+    )
+    for tool, handler in tools:
+        kernel.tool_register(tool, handler)
+
+    memory_store = load_memory_store()
+    for tool in build_memory_tools(memory_store):
+        kernel.tool_register(tool)

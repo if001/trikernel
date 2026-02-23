@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 
 from trikernel.tool_kernel.config import load_ollama_config
+from langchain_core.tools import BaseTool
+from langgraph.prebuilt import InjectedState
+from pydantic import BaseModel
+
 from trikernel.tool_kernel.models import ToolContext
+from trikernel.tool_kernel.tools.structured_tools import build_structured_tool
+from typing_extensions import Annotated
 
 
 @dataclass(frozen=True)
@@ -25,13 +31,12 @@ def load_web_client_config() -> WebClientConfig:
 
 def web_query(
     user_message: str,
-    conversation_id: str,
-    limit: int,
+    state: Annotated[dict, InjectedState],
     *,
     context: ToolContext,
 ) -> str:
-    state_api = _require_state_api(context)
-    history = state_api.turn_list_recent(conversation_id, limit)
+    _ = context
+    history = _history_from_state(state)
     messages = _build_query_messages(user_message, history)
     config = load_ollama_config()
     payload = {
@@ -46,14 +51,14 @@ def web_query(
 
 
 def web_list(q: str, k: int, *, context: ToolContext) -> Dict[str, Any]:
-    _require_state_api(context)
+    _ = context
     config = load_web_client_config()
     payload = {"q": q, "k": k}
     return _post_json(f"{config.base_url}/list", payload)
 
 
 def web_page(urls: str, *, context: ToolContext) -> Dict[str, Any]:
-    _require_state_api(context)
+    _ = context
     config = load_web_client_config()
     payload = {"urls": urls}
     return _post_json(f"{config.base_url}/page", payload)
@@ -71,19 +76,15 @@ def web_page_ref(urls: str, *, context: ToolContext) -> Dict[str, Any]:
 
 
 def _build_query_messages(
-    user_message: str, history: List[Any]
+    user_message: str, history: List[Dict[str, str]]
 ) -> List[Dict[str, str]]:
     messages: List[Dict[str, str]] = [
         {
             "role": "system",
-            "content": "Create a concise web search query based on the user message and recent history.",
+            "content": "Create a concise web search query based on the user message and recent context.",
         }
     ]
-    for turn in history:
-        if getattr(turn, "user_message", None):
-            messages.append({"role": "user", "content": turn.user_message})
-        if getattr(turn, "assistant_message", None):
-            messages.append({"role": "assistant", "content": turn.assistant_message})
+    messages.extend(history)
     messages.append({"role": "user", "content": user_message})
     return messages
 
@@ -102,16 +103,74 @@ def _post_json(url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     return json.loads(body)
 
 
+def _history_from_state(state: dict, limit: int = 6) -> List[Dict[str, str]]:
+    messages = []
+    for msg in state.get("messages", [])[-limit:]:
+        role = getattr(msg, "type", None)
+        content = getattr(msg, "content", None)
+        if isinstance(role, str) and isinstance(content, str):
+            if role == "human":
+                messages.append({"role": "user", "content": content})
+            elif role == "ai":
+                messages.append({"role": "assistant", "content": content})
+    return messages
+
+
 def _require_state_api(context: ToolContext) -> Any:
     if context is None or context.state_api is None:
         raise ValueError("state_api is required in ToolContext")
     return context.state_api
 
 
-def web_tool_functions() -> Dict[str, Any]:
-    return {
-        "web.query": web_query,
-        "web.list": web_list,
-        "web.page": web_page,
-        "web.page_ref": web_page_ref,
-    }
+class WebQueryArgs(BaseModel):
+    user_message: str
+
+
+class WebListArgs(BaseModel):
+    q: str
+    k: int
+
+
+class WebPageArgs(BaseModel):
+    urls: str
+
+
+def build_web_tools() -> List[tuple[BaseTool, Any]]:
+    return [
+        (
+            build_structured_tool(
+                web_query,
+                name="web.query",
+                description="Generate a web search query from user message and history.",
+                args_schema=WebQueryArgs,
+            ),
+            web_query,
+        ),
+        (
+            build_structured_tool(
+                web_list,
+                name="web.list",
+                description="Fetch a list of web search results.",
+                args_schema=WebListArgs,
+            ),
+            web_list,
+        ),
+        (
+            build_structured_tool(
+                web_page,
+                name="web.page",
+                description="Fetch web page content by URLs.",
+                args_schema=WebPageArgs,
+            ),
+            web_page,
+        ),
+        (
+            build_structured_tool(
+                web_page_ref,
+                name="web.page_ref",
+                description="Fetch web pages and store content as an artifact.",
+                args_schema=WebPageArgs,
+            ),
+            web_page_ref,
+        ),
+    ]

@@ -3,13 +3,13 @@
 ## Summary
 Trikernel is a Python library that provides a 3-kernel LLM agent runtime
 (state/tool/orchestration) with a high-level session API. It supports tool
-definition via DSL + Python, task execution with main/worker separation, and
-artifact storage/search.
+definition via LangChain StructuredTool, task execution with main/worker
+separation, and artifact storage/search.
 
 ## Goals
 - Provide a stable library API that hides internal task/turn details.
 - Keep kernels independent and swappable.
-- Allow users to add tools via DSL + Python without touching core kernels.
+- Allow users to add tools via StructuredTool without touching core kernels.
 - Support background work tasks and notifications.
 - Provide safe scheduling (run_at) and recurring work (min 1 hour).
 - Centralize status transitions and fallback handling in execution.
@@ -37,7 +37,7 @@ artifact storage/search.
 ### Functional Requirements
 1. **Kernels**
    - State kernel persists tasks, artifacts, turns and provides claim/transition API.
-   - Tool kernel registers DSL-defined tools and validates inputs.
+   - Tool kernel registers StructuredTool-defined tools.
    - Orchestration kernel runs tasks with LLM + tools.
 
 2. **High-level API**
@@ -46,9 +46,8 @@ artifact storage/search.
    - `TrikernelSession.start_workers()` for background processing.
 
 3. **Tooling**
-   - DSL (YAML/JSON) defines tool name/description/schemas.
+   - Tools are defined with `StructuredTool.from_function`.
    - Python implementations receive `context` as last argument.
-   - Tool input validation must respect `required` and `oneOf/anyOf/allOf`.
 
 4. **Scheduling**
    - `run_at` is stored in task payload.
@@ -68,7 +67,15 @@ artifact storage/search.
    - `artifact.list` returns id, metadata, created_at, body preview.
    - `artifact.extract` uses LLM to extract requested info.
 
-7. **Logging**
+7. **Memory**
+   - Use LangMem + LangGraph store for semantic/episodic/procedural memories.
+   - Memory store must be persistent (JSON/DB) and configurable via `.env`.
+
+8. **Message History**
+   - Use LangGraph checkpointer for conversation history persistence.
+   - Default to a persistent SQLite checkpointer.
+
+9. **Logging**
    - Errors are logged to file with rotation (10MB, 5 backups).
    - Console logs are allowed (info/debug).
 
@@ -86,7 +93,7 @@ artifact storage/search.
 
 ## Success Criteria
 - Users can use `TrikernelSession` without knowing task/turn internals.
-- Tools can be registered via DSL and validated (including oneOf schemas).
+- Tools can be registered via StructuredTool with Pydantic schemas.
 - work tasks can be scheduled and (optionally) repeated safely.
 - Execution layer recovers by failing stale queued/running tasks.
 - Errors are visible in logs with rotation enabled.

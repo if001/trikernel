@@ -4,13 +4,12 @@ import json
 from typing import List, Sequence, Tuple
 
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage
-from langchain_core.tools import StructuredTool as LangchainStructuredTool
+from langchain_core.tools import BaseTool
 
 from ..logging import get_logger
 from ..models import LLMResponse, LLMToolCall
 from ..payloads import extract_llm_input
 from ...state_kernel.models import Task
-from ...tool_kernel.structured_tool import TrikernelStructuredTool
 
 logger = get_logger(__name__)
 
@@ -29,9 +28,9 @@ def build_messages(task: Task) -> Sequence[BaseMessage]:
 
 
 def to_langchain_tools(
-    tools: Sequence[TrikernelStructuredTool],
-) -> List[LangchainStructuredTool]:
-    return [tool.as_langchain() for tool in tools]
+    tools: Sequence[BaseTool],
+) -> List[BaseTool]:
+    return list(tools)
 
 
 def parse_response(message: AIMessage) -> LLMResponse:

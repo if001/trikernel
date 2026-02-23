@@ -10,7 +10,7 @@
 - 状態管理・ツール・実行戦略を分離し、拡張しやすい構造を保つ。
 - 低レベルAPIを隠し、ユーザーが `TrikernelSession` で使えるようにする。
 - 失敗やタイムアウトの扱いを execution に集約し、状態遷移を一元化する。
-- ツール登録は DSL + Python 実装で完結できるようにする。
+- ツール登録は LangChain の StructuredTool を使って行う。
 
 ---
 
@@ -117,43 +117,48 @@ execution が一元的に管理する。
 
 ---
 
-## 6. Tool Kernel と DSL
+## 6. Tool Kernel と Tools
 
-### 6.1 DSL
+### 6.1 StructuredTool
 
-- YAML/JSON で `tool_name`, `input_schema`, `output_schema` を定義
-- `required`, `oneOf/anyOf/allOf` を検証対象にする
+- ツールは LangChain の `StructuredTool.from_function` で定義する
+- schema は Pydantic の args_schema で明示する
 
 ### 6.2 ToolContext
 
 - Python 実装の最後の引数に `context` を追加（keyword-only）
-- DSL には `context` を書かない
+- tool schema に `context` は含めない
 - kernel から自動注入
 
 ---
 
 ## 7. Orchestration Kernel（Runner）
 
-### 7.1 SingleTurnRunner
+### 7.1 LangGraphToolLoopRunner
 
-- user_request では履歴を使用
-- work/notification では履歴不要
-- すべて messages に集約して LLM に渡す
+- LangGraph の ToolNode + checkpointer で tool loop と履歴を管理
+- tools の選択は tool_list から tool_set を作り、tool_set を必要時に利用
+- messages は checkpointer により累積され、node 内で trim する
 
-### 7.2 ToolLoopRunner
-
-- 1周目: `user_message + history + tool_results`
-- 2周目以降: `user_message + history + tool_results`（tool_results だけ増える）
-- ツール選択とツール実行は同じ messages を参照
-
-### 7.3 LLM 入力
+### 7.2 LLM 入力
 
 - LLM 側は `messages` のみを解釈
 - history/message の組み立ては Runner 側で完結
 
 ---
 
-## 8. Execution 層詳細
+## 8. Memory Store（LangMem + store）
+
+- LangMem を用いて Semantic / Episodic / Procedural memory を保持する
+- store は永続化可能な実装（JSON/DB）を使う
+- memory namespace は `("memories", "default", <type>)` を採用
+
+## 9. Message History（LangGraph Checkpointer）
+
+- 会話履歴の保持は LangGraph の checkpointer で行う
+- 既定は SQLite の checkpointer を使用する
+
+## 10. Execution 層詳細
 
 ### 8.1 Dispatcher
 
@@ -175,7 +180,7 @@ execution が一元的に管理する。
 
 ---
 
-## 9. Logging と Error Policy
+## 11. Logging と Error Policy
 
 - error はファイル出力（10MB/5世代ローテ）
 - console は info/debug 出力可
@@ -184,7 +189,7 @@ execution が一元的に管理する。
 
 ---
 
-## 10. ディレクトリ構成
+## 12. ディレクトリ構成
 
 ```text
 src/trikernel/

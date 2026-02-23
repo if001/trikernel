@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from langchain_ollama import OllamaEmbeddings
 from langchain_core.documents import Document
 
-from .models import Artifact, Task, TaskType, Turn, parse_time, utc_now
+from .models import Artifact, Task, TaskType, parse_time, utc_now
 from ..utils.search import HybridSearchIndex
 
 
@@ -304,71 +304,3 @@ def _init_artifact_search(data_dir: Path) -> HybridSearchIndex:
     embeddings = OllamaEmbeddings(model=embed_model, base_url=base_url)
     persist_dir = data_dir / "search_artifacts"
     return HybridSearchIndex(persist_dir, "artifacts", embeddings)
-
-
-class JsonFileTurnStore:
-    def __init__(self, data_dir: Path) -> None:
-        self._path = data_dir / "turns.json"
-        self._lock = threading.Lock()
-        data_dir.mkdir(parents=True, exist_ok=True)
-        if not self._path.exists():
-            self._path.write_text("{}", encoding="utf-8")
-
-    def _read_all(self) -> Dict[str, Dict[str, Any]]:
-        raw = self._path.read_text(encoding="utf-8")
-        if not raw.strip():
-            return {}
-        return json.loads(raw)
-
-    def _write_all(self, data: Dict[str, Dict[str, Any]]) -> None:
-        self._path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-
-    def append_user(
-        self, conversation_id: str, user_message: str, related_task_id: Optional[str]
-    ) -> Turn:
-        with self._lock:
-            data = self._read_all()
-            turn_id = str(uuid4())
-            turn = Turn(
-                turn_id=turn_id,
-                conversation_id=conversation_id,
-                user_message=user_message,
-                related_task_id=related_task_id,
-            )
-            data[turn_id] = turn.to_dict()
-            self._write_all(data)
-            return turn
-
-    def set_assistant(
-        self,
-        turn_id: str,
-        assistant_message: str,
-        artifacts: List[str],
-        metadata: Dict[str, Any],
-    ) -> Optional[Turn]:
-        with self._lock:
-            data = self._read_all()
-            current = data.get(turn_id)
-            if not current:
-                return None
-            updated = dict(current)
-            updated["assistant_message"] = assistant_message
-            updated["artifacts"] = list(artifacts)
-            updated["metadata"] = dict(metadata)
-            updated["updated_at"] = utc_now()
-            data[turn_id] = updated
-            self._write_all(data)
-            return Turn.from_dict(updated)
-
-    def list_recent(self, conversation_id: str, limit: int) -> List[Turn]:
-        with self._lock:
-            data = self._read_all()
-        turns = [
-            Turn.from_dict(value)
-            for value in data.values()
-            if value.get("conversation_id") == conversation_id
-        ]
-        turns.sort(key=lambda item: item.created_at, reverse=True)
-        return list(reversed(turns[:limit]))

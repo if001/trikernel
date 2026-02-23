@@ -5,10 +5,9 @@ from typing import Optional
 from trikernel.utils.logging import get_logger
 
 from ..orchestration_kernel.models import RunResult, RunnerContext
-from ..orchestration_kernel.protocols import LLMAPI, Runner
 from ..state_kernel.models import Task
-from ..state_kernel.protocols import StateKernelAPI
-from ..tool_kernel.protocols import ToolAPI, ToolLLMAPI
+from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
+from ..tool_kernel.kernel import ToolKernel
 from .transports import ResultSender, WorkReceiver, ZmqResultSender, ZmqWorkReceiver
 
 logger = get_logger(__name__)
@@ -18,16 +17,18 @@ class WorkWorker:
     def __init__(
         self,
         state_api: StateKernelAPI,
-        tool_api: ToolAPI,
-        runner: Runner,
-        llm_api: LLMAPI,
-        tool_llm_api: Optional[ToolLLMAPI],
+        message_store: MessageStoreAPI,
+        tool_api: ToolKernel,
+        runner: object,
+        llm_api: object,
+        tool_llm_api: Optional[object],
         work_receiver: Optional[WorkReceiver] = None,
         result_sender: Optional[ResultSender] = None,
         work_endpoint: str = "inproc://trikernel-work",
         result_endpoint: str = "inproc://trikernel-work-results",
     ) -> None:
         self.state_api = state_api
+        self.message_store = message_store
         self.tool_api = tool_api
         self.runner = runner
         self.llm_api = llm_api
@@ -66,7 +67,9 @@ class WorkWorker:
     def _run_task(self, task: Task, runner_id: str) -> RunResult:
         context = RunnerContext(
             runner_id=runner_id,
+            conversation_id="default",
             state_api=self.state_api,
+            message_store=self.message_store,
             tool_api=self.tool_api,
             llm_api=self.llm_api,
             tool_llm_api=self.tool_llm_api,
