@@ -204,7 +204,8 @@ def test_task_create_work_payload_descriptions_on_structured_tool():
     definition = registration.definition
     payload_props = definition.input_schema["properties"]["payload"]["properties"]
     assert (
-        payload_props["message"]["description"] == "ワーカーで実行するべきタスクの内容"
+        payload_props["message"]["description"]
+        == "Work instruction message for the worker."
     )
 
     structured = build_structured_tool(definition, registration.handler)
@@ -220,5 +221,6 @@ def test_task_create_work_payload_descriptions_on_structured_tool():
     payload_fields = payload_schema["properties"]
 
     assert (
-        payload_fields["message"]["description"] == "ワーカーで実行するべきタスクの内容"
+        payload_fields["message"]["description"]
+        == "Work instruction message for the worker."
     )

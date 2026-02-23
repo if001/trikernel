@@ -18,9 +18,27 @@ def task_create_user_request(payload: Dict[str, Any], *, context: ToolContext) -
 
 
 def task_create_work(payload: Dict[str, Any], *, context: ToolContext) -> str:
+    state_api = _require_state_api(context)
+    return state_api.task_create("work", payload)
+
+
+def task_create_work_at(payload: Dict[str, Any], *, context: ToolContext) -> str:
     run_at = payload.get("run_at")
-    if run_at:
-        _validate_run_at(str(run_at))
+    if not run_at:
+        raise ValueError("run_at is required")
+    _validate_run_at(str(run_at))
+    state_api = _require_state_api(context)
+    return state_api.task_create("work", payload)
+
+
+def task_create_work_repeat(payload: Dict[str, Any], *, context: ToolContext) -> str:
+    interval = payload.get("repeat_interval_seconds")
+    if interval is None:
+        raise ValueError("repeat_interval_seconds is required")
+    if int(interval) < 3600:
+        raise ValueError("repeat_interval_seconds must be >= 3600")
+    payload = dict(payload)
+    payload.setdefault("repeat_enabled", True)
     state_api = _require_state_api(context)
     return state_api.task_create("work", payload)
 
@@ -152,6 +170,8 @@ def state_tool_functions() -> Dict[str, Any]:
     return {
         "task.create_user_request": task_create_user_request,
         "task.create_work": task_create_work,
+        "task.create_work_at": task_create_work_at,
+        "task.create_work_repeat": task_create_work_repeat,
         "task.create_notification": task_create_notification,
         "task.update": task_update,
         "task.get": task_get,

@@ -15,7 +15,7 @@ tools:
     output_schema:
       type: string
   - tool_name: task.create_work
-    description: Create a work task for background worker processing. For example, use it to run a task in 5 minutes or run a task every 2 hours.
+    description: Create a work task for background worker processing.
     input_schema:
       type: object
       properties:
@@ -24,17 +24,44 @@ tools:
           properties:
             message:
               type: string
-              description: ワーカーで実行するべきタスクの内容
+              description: Work instruction message for the worker. If launching from a worker, include details such as the reason for the additional launch.
+          required: [message]
+      required: [payload]
+    output_schema:
+      type: string
+  - tool_name: task.create_work_at
+    description: Create a work task that runs at a specific time.
+    input_schema:
+      type: object
+      properties:
+        payload:
+          type: object
+          properties:
+            message:
+              type: string
+              description: Work instruction message for the worker.
             run_at:
               type: string
-              description: If this field is set, the task will be executed at the specified time. ISO8601 timestamp format.
+              description: ISO8601 timestamp for scheduled execution.
+          required: [message, run_at]
+      required: [payload]
+    output_schema:
+      type: string
+  - tool_name: task.create_work_repeat
+    description: Create a work task that repeats on an interval.
+    input_schema:
+      type: object
+      properties:
+        payload:
+          type: object
+          properties:
+            message:
+              type: string
+              description: Work instruction message for the worker.
             repeat_interval_seconds:
               type: integer
-              description: If this field is set, the task will repeat at intervals. (minimum 3600).
-            repeat_enabled:
-              type: boolean
-              description: Whether recurring execution is enabled.
-          required: [message]
+              description: Repeat interval in seconds (minimum 3600).
+          required: [message, repeat_interval_seconds]
       required: [payload]
     output_schema:
       type: string
