@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Literal
+
+from ..utils.time_utils import now_iso
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return now_iso()
 
 
 def parse_time(value: Optional[str]) -> Optional[datetime]:
