@@ -7,9 +7,12 @@ from trikernel.execution.dispatcher import DispatchConfig, PendingWork, WorkDisp
 from trikernel.execution.worker import WorkWorker
 from trikernel.execution.session import TrikernelSession
 from trikernel.execution.transports import ResultReceiver, ResultSender, WorkReceiver, WorkSender
-from trikernel.orchestration_kernel.models import RunResult
+from trikernel.orchestration_kernel.models import LLMResponse, RunResult
+from trikernel.orchestration_kernel.memory_manager import LangMemMemoryManager
 from trikernel.state_kernel.kernel import StateKernel
-from trikernel.state_kernel.message_store import LangGraphMessageStore, MessageStoreConfig
+from trikernel.state_kernel.message_store import build_message_store
+from trikernel.state_kernel.memory_store import build_memory_store
+from trikernel.tool_kernel.protocols import ToolLLMBase
 
 
 class ThreadSafeChannel(WorkSender, WorkReceiver, ResultSender, ResultReceiver):
@@ -68,104 +71,139 @@ class BlockingRunner:
         return RunResult(user_output=self._output, task_state="done")
 
 
+class DummyLLM:
+    def generate(self, task, tools):
+        return LLMResponse(user_output="ok", tool_calls=[])
+
+    def collect_stream(self, task, tools):
+        return LLMResponse(user_output="ok", tool_calls=[]), []
+
+
+class DummyToolLLM(ToolLLMBase):
+    def generate(self, prompt: str, tools=None) -> str:
+        return ""
+
+
 def _run_async(coro) -> None:
     asyncio.run(coro)
 
 
 def test_async_flow_main_worker_serial(tmp_path):
-    state = StateKernel(data_dir=tmp_path)
-    message_store = LangGraphMessageStore(
-        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
-    )
-    tool_api = DummyToolAPI()
-    main_runner = StaticRunner("main done")
-    worker_runner = StaticRunner("work done")
-    session = TrikernelSession(
-        state, tool_api, main_runner, llm_api=None, message_store=message_store
-    )
+    async def _run():
+        state = StateKernel(data_dir=tmp_path)
+        async with build_memory_store(data_dir=tmp_path) as store, build_message_store(
+            data_dir=tmp_path
+        ) as message_store:
+            tool_api = DummyToolAPI()
+            main_runner = StaticRunner("main done")
+            worker_runner = StaticRunner("work done")
+            session = TrikernelSession(
+                state,
+                tool_api,
+                main_runner,
+                llm_api=DummyLLM(),
+                tool_llm_api=DummyToolLLM(),
+                message_store=message_store,
+                store=store,
+            )
 
-    work_channel = ThreadSafeChannel()
-    result_channel = ThreadSafeChannel()
-    dispatcher = WorkDispatcher(
-        state_api=state,
-        work_sender=work_channel,
-        result_receiver=result_channel,
-        config=DispatchConfig(worker_count=1, poll_interval=0),
-    )
-    worker = WorkWorker(
-        state_api=state,
-        message_store=message_store,
-        tool_api=tool_api,
-        runner=worker_runner,
-        llm_api=None,
-        tool_llm_api=None,
-        work_receiver=work_channel,
-        result_sender=result_channel,
-    )
+            work_channel = ThreadSafeChannel()
+            result_channel = ThreadSafeChannel()
+            dispatcher = WorkDispatcher(
+                state_api=state,
+                work_sender=work_channel,
+                result_receiver=result_channel,
+                config=DispatchConfig(worker_count=1, poll_interval=0),
+            )
+        worker = WorkWorker(
+            state_api=state,
+            message_store=message_store,
+            tool_api=tool_api,
+            runner=worker_runner,
+            llm_api=DummyLLM(),
+            tool_llm_api=DummyToolLLM(),
+            memory_manager=LangMemMemoryManager(store),
+            store=store,
+            work_receiver=work_channel,
+            result_sender=result_channel,
+        )
 
-    result = session.send_message("hello")
-    assert result.message == "main done"
+            result = session.send_message("hello")
+            assert result.message == "main done"
 
-    session.create_work_task({"message": "do"})
+            session.create_work_task({"message": "do"})
 
-    _run_async(dispatcher.run_once())
-    _run_async(worker.run_once())
-    _run_async(dispatcher.run_once())
+            await dispatcher.run_once()
+            await worker.run_once()
+            await dispatcher.run_once()
 
-    notices = session.drain_notifications()
-    assert "work done" in notices
+            notices = session.drain_notifications()
+            assert "work done" in notices
+
+    asyncio.run(_run())
 
 
 def test_async_flow_main_and_worker_parallel(tmp_path):
-    state = StateKernel(data_dir=tmp_path)
-    message_store = LangGraphMessageStore(
-        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
-    )
-    tool_api = DummyToolAPI()
-    main_runner = StaticRunner("main done")
-    release = threading.Event()
-    worker_runner = BlockingRunner(release, "work done")
-    session = TrikernelSession(
-        state, tool_api, main_runner, llm_api=None, message_store=message_store
-    )
+    async def _run():
+        state = StateKernel(data_dir=tmp_path)
+        async with build_memory_store(data_dir=tmp_path) as store, build_message_store(
+            data_dir=tmp_path
+        ) as message_store:
+            tool_api = DummyToolAPI()
+            main_runner = StaticRunner("main done")
+            release = threading.Event()
+            worker_runner = BlockingRunner(release, "work done")
+            session = TrikernelSession(
+                state,
+                tool_api,
+                main_runner,
+                llm_api=DummyLLM(),
+                tool_llm_api=DummyToolLLM(),
+                message_store=message_store,
+                store=store,
+            )
 
-    work_channel = ThreadSafeChannel()
-    result_channel = ThreadSafeChannel()
-    dispatcher = WorkDispatcher(
-        state_api=state,
-        work_sender=work_channel,
-        result_receiver=result_channel,
-        config=DispatchConfig(worker_count=1, poll_interval=0),
-    )
-    worker = WorkWorker(
-        state_api=state,
-        message_store=message_store,
-        tool_api=tool_api,
-        runner=worker_runner,
-        llm_api=None,
-        tool_llm_api=None,
-        work_receiver=work_channel,
-        result_sender=result_channel,
-    )
+            work_channel = ThreadSafeChannel()
+            result_channel = ThreadSafeChannel()
+            dispatcher = WorkDispatcher(
+                state_api=state,
+                work_sender=work_channel,
+                result_receiver=result_channel,
+                config=DispatchConfig(worker_count=1, poll_interval=0),
+            )
+        worker = WorkWorker(
+            state_api=state,
+            message_store=message_store,
+            tool_api=tool_api,
+            runner=worker_runner,
+            llm_api=DummyLLM(),
+            tool_llm_api=DummyToolLLM(),
+            memory_manager=LangMemMemoryManager(store),
+            store=store,
+            work_receiver=work_channel,
+            result_sender=result_channel,
+        )
 
-    session.create_work_task({"message": "do"})
-    _run_async(dispatcher.run_once())
+            session.create_work_task({"message": "do"})
+            await dispatcher.run_once()
 
-    worker_thread = threading.Thread(target=_run_async, args=(worker.run_once(),))
-    worker_thread.start()
+            worker_thread = threading.Thread(target=_run_async, args=(worker.run_once(),))
+            worker_thread.start()
 
-    start = time.monotonic()
-    result = session.send_message("hello")
-    elapsed = time.monotonic() - start
-    assert result.message == "main done"
-    assert elapsed < 0.5
+            start = time.monotonic()
+            result = session.send_message("hello")
+            elapsed = time.monotonic() - start
+            assert result.message == "main done"
+            assert elapsed < 0.5
 
-    release.set()
-    worker_thread.join(timeout=2)
-    _run_async(dispatcher.run_once())
+            release.set()
+            worker_thread.join(timeout=2)
+            await dispatcher.run_once()
 
-    notices = session.drain_notifications()
-    assert "work done" in notices
+            notices = session.drain_notifications()
+            assert "work done" in notices
+
+    asyncio.run(_run())
 
 
 def test_worker_max_parallel_two(tmp_path):

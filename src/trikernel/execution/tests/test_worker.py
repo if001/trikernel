@@ -3,8 +3,11 @@ import asyncio
 from trikernel.execution.worker import WorkWorker
 from trikernel.execution.transports import ResultSender, WorkReceiver
 from trikernel.state_kernel.kernel import StateKernel
-from trikernel.state_kernel.message_store import LangGraphMessageStore, MessageStoreConfig
-from trikernel.orchestration_kernel.models import RunResult
+from trikernel.state_kernel.message_store import build_message_store
+from trikernel.state_kernel.memory_store import build_memory_store
+from trikernel.orchestration_kernel.models import LLMResponse, RunResult
+from trikernel.orchestration_kernel.memory_manager import LangMemMemoryManager
+from trikernel.tool_kernel.protocols import ToolLLMBase
 
 
 class FakeWorkReceiver(WorkReceiver):
@@ -61,28 +64,40 @@ class DummyLLM:
         return LLMResponse(user_output="ok", tool_calls=[]), []
 
 
+class DummyToolLLM(ToolLLMBase):
+    def generate(self, prompt: str, tools=None) -> str:
+        return ""
+
+
 class DummyRunner:
     def run(self, task, runner_context):
         return RunResult(user_output="done", task_state="done")
 
 
 def test_worker_sends_result(tmp_path):
-    state = StateKernel(data_dir=tmp_path)
-    message_store = LangGraphMessageStore(MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite"))
-    task_id = state.task_create("work", {"message": "do"})
-    receiver = FakeWorkReceiver({"task_id": task_id})
-    sender = FakeResultSender()
-    worker = WorkWorker(
-        state_api=state,
-        message_store=message_store,
-        tool_api=DummyToolAPI(),
-        runner=DummyRunner(),
-        llm_api=DummyLLM(),
-        tool_llm_api=None,
-        work_receiver=receiver,
-        result_sender=sender,
-    )
-    asyncio.run(worker.run_once())
-    assert sender.sent
-    assert sender.sent[0]["task_id"] == task_id
-    assert sender.sent[0]["task_state"] == "done"
+    async def _run():
+        state = StateKernel(data_dir=tmp_path)
+        async with build_memory_store(data_dir=tmp_path) as store, build_message_store(
+            data_dir=tmp_path
+        ) as message_store:
+            task_id = state.task_create("work", {"message": "do"})
+            receiver = FakeWorkReceiver({"task_id": task_id})
+            sender = FakeResultSender()
+            worker = WorkWorker(
+                state_api=state,
+                message_store=message_store,
+                tool_api=DummyToolAPI(),
+                runner=DummyRunner(),
+                llm_api=DummyLLM(),
+                tool_llm_api=DummyToolLLM(),
+                memory_manager=LangMemMemoryManager(store),
+                store=store,
+                work_receiver=receiver,
+                result_sender=sender,
+            )
+            await worker.run_once()
+            assert sender.sent
+            assert sender.sent[0]["task_id"] == task_id
+            assert sender.sent[0]["task_state"] == "done"
+
+    asyncio.run(_run())

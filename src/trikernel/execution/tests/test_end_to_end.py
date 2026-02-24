@@ -1,12 +1,14 @@
 import asyncio
-import time
 
 from trikernel.execution.dispatcher import DispatchConfig, WorkDispatcher
 from trikernel.execution.worker import WorkWorker
 from trikernel.execution.transports import ResultReceiver, ResultSender, WorkReceiver, WorkSender
 from trikernel.state_kernel.kernel import StateKernel
-from trikernel.state_kernel.message_store import LangGraphMessageStore, MessageStoreConfig
-from trikernel.orchestration_kernel.models import RunResult
+from trikernel.state_kernel.message_store import build_message_store
+from trikernel.state_kernel.memory_store import build_memory_store
+from trikernel.orchestration_kernel.models import LLMResponse, RunResult
+from trikernel.orchestration_kernel.memory_manager import LangMemMemoryManager
+from trikernel.tool_kernel.protocols import ToolLLMBase
 
 
 class InMemoryChannel(WorkSender, WorkReceiver, ResultSender, ResultReceiver):
@@ -57,74 +59,99 @@ class FailingRunner:
         raise RuntimeError("boom")
 
 
+class DummyLLM:
+    def generate(self, task, tools):
+        return LLMResponse(user_output="ok", tool_calls=[])
+
+    def collect_stream(self, task, tools):
+        return LLMResponse(user_output="ok", tool_calls=[]), []
+
+
+class DummyToolLLM(ToolLLMBase):
+    def generate(self, prompt: str, tools=None) -> str:
+        return ""
+
+
 def test_work_task_end_to_end(tmp_path):
-    state = StateKernel(data_dir=tmp_path)
-    message_store = LangGraphMessageStore(
-        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
-    )
-    work_channel = InMemoryChannel()
-    result_channel = InMemoryChannel()
-    dispatcher = WorkDispatcher(
-        state_api=state,
-        work_sender=work_channel,
-        result_receiver=result_channel,
-        config=DispatchConfig(worker_count=1, poll_interval=0),
-    )
-    worker = WorkWorker(
-        state_api=state,
-        message_store=message_store,
-        tool_api=DummyToolAPI(),
-        runner=DummyRunner(),
-        llm_api=None,
-        tool_llm_api=None,
-        work_receiver=work_channel,
-        result_sender=result_channel,
-    )
+    async def _run():
+        state = StateKernel(data_dir=tmp_path)
+        async with build_memory_store(data_dir=tmp_path) as store, build_message_store(
+            data_dir=tmp_path
+        ) as message_store:
+            work_channel = InMemoryChannel()
+            result_channel = InMemoryChannel()
+            dispatcher = WorkDispatcher(
+                state_api=state,
+                work_sender=work_channel,
+                result_receiver=result_channel,
+                config=DispatchConfig(worker_count=1, poll_interval=0),
+            )
+            worker = WorkWorker(
+                state_api=state,
+                message_store=message_store,
+                tool_api=DummyToolAPI(),
+                runner=DummyRunner(),
+                llm_api=DummyLLM(),
+                tool_llm_api=DummyToolLLM(),
+                memory_manager=LangMemMemoryManager(store),
+                store=store,
+                work_receiver=work_channel,
+                result_sender=result_channel,
+            )
 
-    task_id = state.task_create("work", {"message": "do", "meta": {"channel_id": 1}})
+            task_id = state.task_create(
+                "work", {"message": "do", "meta": {"channel_id": 1}}
+            )
 
-    asyncio.run(dispatcher.run_once())
-    asyncio.run(worker.run_once())
-    asyncio.run(dispatcher.run_once())
+            await dispatcher.run_once()
+            await worker.run_once()
+            await dispatcher.run_once()
 
-    task = state.task_get(task_id)
-    assert task is not None
-    assert task.state == "done"
-    notifications = state.task_list(task_type="notification", state=None)
-    assert notifications
-    assert notifications[0].payload.get("meta", {}).get("channel_id") == 1
+            task = state.task_get(task_id)
+            assert task is not None
+            assert task.state == "done"
+            notifications = state.task_list(task_type="notification", state=None)
+            assert notifications
+            assert notifications[0].payload.get("meta", {}).get("channel_id") == 1
+
+    asyncio.run(_run())
 
 
 def test_work_task_failure_marks_failed(tmp_path):
-    state = StateKernel(data_dir=tmp_path)
-    message_store = LangGraphMessageStore(
-        MessageStoreConfig(sqlite_path=tmp_path / "checkpoints.sqlite")
-    )
-    work_channel = InMemoryChannel()
-    result_channel = InMemoryChannel()
-    dispatcher = WorkDispatcher(
-        state_api=state,
-        work_sender=work_channel,
-        result_receiver=result_channel,
-        config=DispatchConfig(worker_count=1, poll_interval=0),
-    )
-    worker = WorkWorker(
-        state_api=state,
-        message_store=message_store,
-        tool_api=DummyToolAPI(),
-        runner=FailingRunner(),
-        llm_api=None,
-        tool_llm_api=None,
-        work_receiver=work_channel,
-        result_sender=result_channel,
-    )
+    async def _run():
+        state = StateKernel(data_dir=tmp_path)
+        async with build_memory_store(data_dir=tmp_path) as store, build_message_store(
+            data_dir=tmp_path
+        ) as message_store:
+            work_channel = InMemoryChannel()
+            result_channel = InMemoryChannel()
+            dispatcher = WorkDispatcher(
+                state_api=state,
+                work_sender=work_channel,
+                result_receiver=result_channel,
+                config=DispatchConfig(worker_count=1, poll_interval=0),
+            )
+            worker = WorkWorker(
+                state_api=state,
+                message_store=message_store,
+                tool_api=DummyToolAPI(),
+                runner=FailingRunner(),
+                llm_api=DummyLLM(),
+                tool_llm_api=DummyToolLLM(),
+                memory_manager=LangMemMemoryManager(store),
+                store=store,
+                work_receiver=work_channel,
+                result_sender=result_channel,
+            )
 
-    task_id = state.task_create("work", {"message": "do"})
+            task_id = state.task_create("work", {"message": "do"})
 
-    asyncio.run(dispatcher.run_once())
-    asyncio.run(worker.run_once())
-    asyncio.run(dispatcher.run_once())
+            await dispatcher.run_once()
+            await worker.run_once()
+            await dispatcher.run_once()
 
-    task = state.task_get(task_id)
-    assert task is not None
-    assert task.state == "failed"
+            task = state.task_get(task_id)
+            assert task is not None
+            assert task.state == "failed"
+
+    asyncio.run(_run())

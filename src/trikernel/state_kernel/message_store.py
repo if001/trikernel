@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
-import sqlite3
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from .protocols import MessageStoreAPI
 
@@ -29,26 +30,40 @@ def load_message_store_config(data_dir: Optional[Path] = None) -> MessageStoreCo
     return MessageStoreConfig(sqlite_path=sqlite_path)
 
 
+def _sqlite_conn_string(path: Path) -> str:
+    return f"sqlite+aiosqlite:///{path}"
+
+
 class LangGraphMessageStore(MessageStoreAPI):
-    def __init__(self, config: MessageStoreConfig) -> None:
+    def __init__(
+        self,
+        config: MessageStoreConfig,
+        *,
+        checkpointer: BaseCheckpointSaver,
+    ) -> None:
         self._config = config
         self._config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-        self._checkpointer_cm = None
-        try:
-            conn = sqlite3.connect(
-                str(self._config.sqlite_path), check_same_thread=False
-            )
-            self._checkpointer = SqliteSaver(conn)
-        except TypeError:
-            if not hasattr(SqliteSaver, "from_conn_string"):
-                raise
-            self._checkpointer_cm = SqliteSaver.from_conn_string(
-                str(self._config.sqlite_path)
-            )
-            self._checkpointer = self._checkpointer_cm.__enter__()
-        self.checkpointer = self._checkpointer
+        self.checkpointer = checkpointer
 
 
-def load_message_store(data_dir: Optional[Path] = None) -> LangGraphMessageStore:
+@asynccontextmanager
+async def build_message_store(
+    data_dir: Optional[Path] = None,
+):
     config = load_message_store_config(data_dir)
-    return LangGraphMessageStore(config)
+    config.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    conn_string = _sqlite_conn_string(config.sqlite_path)
+    checkpointer_cm = AsyncSqliteSaver.from_conn_string(conn_string)
+    async with checkpointer_cm as checkpointer:
+        await _maybe_setup(checkpointer)
+        yield LangGraphMessageStore(
+            config,
+            checkpointer=checkpointer,
+        )
+
+
+async def _maybe_setup(checkpointer) -> None:
+    maybe = checkpointer.setup()
+    if hasattr(maybe, "__await__"):
+        await maybe
+

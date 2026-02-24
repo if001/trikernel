@@ -8,6 +8,7 @@ from langchain_ollama import ChatOllama
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.store.base import BaseStore
 
 from ..llm.config import load_ollama_config
 from ..logging import get_logger
@@ -56,6 +57,7 @@ class LangGraphToolLoopRunner:
                 step_context,
                 task.task_type,
                 runner_context,
+                runner_context.store,
             )
             limit = _budget_limit(task, self._recursion_limit)
             register_runtime(
@@ -74,7 +76,10 @@ class LangGraphToolLoopRunner:
                 },
                 config={
                     "recursion_limit": limit,
-                    "configurable": {"thread_id": runner_context.conversation_id},
+                    "configurable": {
+                        "thread_id": runner_context.conversation_id,
+                        "langgraph_user_id": runner_context.conversation_id,
+                    },
                 },
                 # debug=True,
             )
@@ -156,6 +161,7 @@ def _build_graph(
     step_context: SimpleStepContext,
     task_type: str,
     runner_context: RunnerContext,
+    store: BaseStore | None,
 ):
     graph = StateGraph(ToolLoopState)
 
@@ -223,7 +229,12 @@ def _build_graph(
     graph.add_edge("tools", "discover")
     graph.add_edge("discover", "agent")
     graph.set_entry_point("discover")
-    return graph.compile(checkpointer=runner_context.message_store.checkpointer)
+    if store is None:
+        return graph.compile(checkpointer=runner_context.message_store.checkpointer)
+    return graph.compile(
+        checkpointer=runner_context.message_store.checkpointer,
+        store=store,
+    )
 
 
 def _budget_limit(task: Task, default_limit: int) -> int:

@@ -1,6 +1,7 @@
 from trikernel.orchestration_kernel.models import LLMResponse, RunnerContext
 from trikernel.orchestration_kernel.runners import LangGraphToolLoopRunner
 from trikernel.state_kernel.models import Task
+from trikernel.tool_kernel.protocols import ToolLLMBase
 
 
 class DummyStateAPI:
@@ -31,9 +32,21 @@ class DummyMessageStore:
     checkpointer = None
 
 
+class DummyStore:
+    pass
+
+
 class DummyLLM:
     def generate(self, task, tools):
         return LLMResponse(user_output="ok", tool_calls=[])
+
+    def collect_stream(self, task, tools):
+        return LLMResponse(user_output="ok", tool_calls=[]), []
+
+
+class DummyToolLLM(ToolLLMBase):
+    def generate(self, prompt: str, tools=None) -> str:
+        return ""
 
 
 def _context():
@@ -44,7 +57,8 @@ def _context():
         message_store=DummyMessageStore(),
         tool_api=DummyToolAPI(),
         llm_api=DummyLLM(),
-        tool_llm_api=None,
+        tool_llm_api=DummyToolLLM(),
+        store=DummyStore(),
     )
 
 

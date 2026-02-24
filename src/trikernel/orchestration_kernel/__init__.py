@@ -11,6 +11,7 @@ from .llm.gemini import GeminiLLM
 from .llm.ollama import OllamaLLM
 from .runners import LangGraphToolLoopRunner
 from .logging import get_logger
+from .protocols import OrchestrationLLM, Runner
 
 __all__ = [
     "OllamaConfig",
@@ -27,5 +28,7 @@ __all__ = [
     "StepContext",
     "OllamaLLM",
     "GeminiLLM",
+    "OrchestrationLLM",
+    "Runner",
     "get_logger",
 ]

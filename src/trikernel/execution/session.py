@@ -7,15 +7,19 @@ from datetime import datetime, timedelta, timezone
 import threading
 from typing import Any, Dict, List, Optional, Union
 
+from langgraph.store.base import BaseStore
+
 from trikernel.utils.logging import get_logger
 
 from .dispatcher import DispatchConfig, WorkDispatcher
 from .worker import WorkWorker
 from .loop import ExecutionLoop, LoopConfig
 from ..orchestration_kernel.models import RunResult, RunnerContext
+from ..orchestration_kernel.protocols import OrchestrationLLM, Runner
+from ..orchestration_kernel.memory_manager import LangMemMemoryManager
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
-from ..state_kernel.message_store import load_message_store
+from ..tool_kernel.protocols import ToolLLMBase
 from ..tool_kernel.kernel import ToolKernel
 from .payloads import UserRequestPayload, WorkPayload
 
@@ -36,10 +40,11 @@ class TrikernelSession:
         self,
         state_api: StateKernelAPI,
         tool_api: ToolKernel,
-        runner: object,
-        llm_api: object,
-        tool_llm_api: Optional[object] = None,
-        message_store: Optional[MessageStoreAPI] = None,
+        runner: Runner,
+        llm_api: OrchestrationLLM,
+        tool_llm_api: ToolLLMBase,
+        message_store: MessageStoreAPI,
+        store: BaseStore,
         conversation_id: str = "default",
         runner_id: str = "main",
         claim_ttl_seconds: int = 30,
@@ -50,7 +55,9 @@ class TrikernelSession:
         self._runner = runner
         self._llm_api = llm_api
         self._tool_llm_api = tool_llm_api
-        self._message_store = message_store or load_message_store()
+        self._message_store = message_store
+        self._store = store
+        self._memory_manager = LangMemMemoryManager(store)
         self._conversation_id = conversation_id
         self._runner_id = runner_id
         self._claim_ttl_seconds = claim_ttl_seconds
@@ -101,6 +108,8 @@ class TrikernelSession:
         if result.stream_chunks:
             assistant_message = "".join(result.stream_chunks) or assistant_message
         self._finalize_task(task, result)
+        if result.task_state == "done":
+            self._enqueue_memory_update(message, assistant_message)
         return MessageResult(
             message=assistant_message,
             task_state=result.task_state,
@@ -165,6 +174,8 @@ class TrikernelSession:
             runner=self._runner,
             llm_api=self._llm_api,
             tool_llm_api=self._tool_llm_api,
+            memory_manager=self._memory_manager,
+            store=self._store,
         )
         self._loop = ExecutionLoop(self._dispatcher, self._worker, loop_config)
 
@@ -205,6 +216,7 @@ class TrikernelSession:
             tool_api=self._tool_api,
             llm_api=self._llm_api,
             tool_llm_api=self._tool_llm_api,
+            store=self._store,
             stream=stream,
         )
         try:
@@ -240,6 +252,21 @@ class TrikernelSession:
             self._state_api.task_fail(
                 task.task_id, result.error or {"message": "failed"}
             )
+
+    def _enqueue_memory_update(self, user_message: str, assistant_message: str) -> None:
+        if not user_message or not assistant_message:
+            return
+        self._state_api.task_create(
+            "work",
+            {
+                "kind": "memory_update",
+                "conversation_id": self._conversation_id,
+                "messages": [
+                    {"role": "user", "content": user_message},
+                    {"role": "assistant", "content": assistant_message},
+                ],
+            },
+        )
 
 
 def _validate_run_at(run_at: str) -> None:
