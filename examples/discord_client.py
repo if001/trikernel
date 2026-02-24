@@ -34,8 +34,8 @@ async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
     tool_kernel = ToolKernel(re_index=False)
     register_default_tools(tool_kernel)
 
-    for tool, handler in build_web_tools():
-        tool_kernel.tool_register(tool, handler)
+    for tool in build_web_tools():
+        tool_kernel.tool_register(tool)
 
     session = TrikernelSession(state, tool_kernel, runner, llm, tool_llm)
     session.start_workers()

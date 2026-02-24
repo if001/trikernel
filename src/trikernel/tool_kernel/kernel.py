@@ -1,24 +1,21 @@
 from __future__ import annotations
 
-import inspect
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_core.tools import BaseTool
 from langchain_ollama import OllamaEmbeddings
 
-from .models import ToolContext
 from ..utils.search import HybridSearchIndex
 
 
 @dataclass
 class ToolEntry:
     tool: BaseTool
-    handler: Optional[Any]
 
 
 class ToolKernel:
@@ -32,11 +29,9 @@ class ToolKernel:
     def tool_register(
         self,
         tool: BaseTool,
-        handler: Any | None = None,
     ) -> None:
         self._tools[tool.name] = ToolEntry(
             tool=tool,
-            handler=handler,
         )
         self._index_tool(tool, force=self._re_index)
 
@@ -64,14 +59,6 @@ class ToolKernel:
             if query_lower in name.lower()
             or query_lower in (self._tools[name].tool.description or "").lower()
         ]
-
-    def tool_invoke(
-        self, tool_name: str, args: Dict[str, Any], tool_context: ToolContext
-    ) -> Any:
-        entry = self._tools[tool_name]
-        if entry.handler:
-            return _invoke_handler(entry.handler, args, tool_context)
-        return entry.tool.invoke(args)
 
     def tool_list(self) -> List[BaseTool]:
         return [tool.tool for tool in self._tools.values()]
@@ -103,12 +90,3 @@ def _init_tool_search(data_dir: Path) -> HybridSearchIndex:
     persist_dir = data_dir / "search_tools"
     return HybridSearchIndex(persist_dir, "tools", embeddings)
 
-
-def _invoke_handler(handler: Any, args: Dict[str, Any], context: ToolContext) -> Any:
-    signature = inspect.signature(handler)
-    params = signature.parameters
-    if "context" in params:
-        return handler(**args, context=context)
-    if "tool_context" in params:
-        return handler(**args, tool_context=context)
-    return handler(**args)

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
 from ..tool_kernel.kernel import ToolKernel
+from ..tool_kernel.protocols import ToolLLMBase
 
 
 @dataclass
@@ -30,7 +31,7 @@ class RunnerContext:
     message_store: MessageStoreAPI
     tool_api: ToolKernel
     llm_api: object
-    tool_llm_api: object | None = None
+    tool_llm_api: ToolLLMBase | None = None
     stream: bool = False
 
 

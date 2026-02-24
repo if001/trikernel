@@ -1,26 +1,38 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List
 from dataclasses import dataclass
+from typing import Any, Dict, List
+
 from dotenv import load_dotenv
+from langchain_core.tools import BaseTool, StructuredTool
+from langgraph.prebuilt import InjectedState
+from pydantic import BaseModel, Field
+from typing_extensions import Annotated
 
 from trikernel.tool_kernel.config import load_ollama_config
-from langchain_core.tools import BaseTool
-from langgraph.prebuilt import InjectedState
-from pydantic import BaseModel
-
-from trikernel.tool_kernel.models import ToolContext
-from trikernel.tool_kernel.tools.structured_tools import build_structured_tool
-from typing_extensions import Annotated
+from trikernel.tool_kernel.runtime import get_state_api
 
 
 @dataclass(frozen=True)
 class WebClientConfig:
     base_url: str
+
+
+class WebQueryArgs(BaseModel):
+    user_message: str = Field(..., description="User message to summarize into a query.")
+
+
+class WebListArgs(BaseModel):
+    q: str = Field(..., description="Query string.")
+    k: int = Field(..., description="Number of results.")
+
+
+class WebPageArgs(BaseModel):
+    urls: str = Field(..., description="Comma-separated URLs.")
 
 
 def load_web_client_config() -> WebClientConfig:
@@ -30,47 +42,53 @@ def load_web_client_config() -> WebClientConfig:
 
 
 def web_query(
-    user_message: str,
+    payload: WebQueryArgs,
     state: Annotated[dict, InjectedState],
-    *,
-    context: ToolContext,
 ) -> str:
-    _ = context
     history = _history_from_state(state)
-    messages = _build_query_messages(user_message, history)
+    messages = _build_query_messages(payload.user_message, history)
     config = load_ollama_config()
-    payload = {
+    payload_dict = {
         "model": config.small_model,
         "messages": messages,
         "stream": False,
     }
-    response = _post_json(f"{config.base_url}/api/chat", payload)
+    response = _post_json(f"{config.base_url}/api/chat", payload_dict)
     message = response.get("message", {})
     content = message.get("content", "")
     return content.strip()
 
 
-def web_list(q: str, k: int, *, context: ToolContext) -> Dict[str, Any]:
-    _ = context
+def web_list(
+    payload: WebListArgs,
+    state: Annotated[dict, InjectedState],
+) -> Dict[str, Any]:
+    _ = state
     config = load_web_client_config()
-    payload = {"q": q, "k": k}
-    return _post_json(f"{config.base_url}/list", payload)
+    payload_dict = {"q": payload.q, "k": payload.k}
+    return _post_json(f"{config.base_url}/list", payload_dict)
 
 
-def web_page(urls: str, *, context: ToolContext) -> Dict[str, Any]:
-    _ = context
+def web_page(
+    payload: WebPageArgs,
+    state: Annotated[dict, InjectedState],
+) -> Dict[str, Any]:
+    _ = state
     config = load_web_client_config()
-    payload = {"urls": urls}
-    return _post_json(f"{config.base_url}/page", payload)
+    payload_dict = {"urls": payload.urls}
+    return _post_json(f"{config.base_url}/page", payload_dict)
 
 
-def web_page_ref(urls: str, *, context: ToolContext) -> Dict[str, Any]:
-    state_api = _require_state_api(context)
-    response = web_page(urls, context=context)
+def web_page_ref(
+    payload: WebPageArgs,
+    state: Annotated[dict, InjectedState],
+) -> Dict[str, Any]:
+    state_api = _require_state_api(state)
+    response = web_page(payload, state=state)
     artifact_id = state_api.artifact_write(
         "application/json",
         json.dumps(response, ensure_ascii=False),
-        {"source": "web.page", "urls": urls},
+        {"source": "web.page", "urls": payload.urls},
     )
     return {"artifact_id": artifact_id}
 
@@ -116,61 +134,37 @@ def _history_from_state(state: dict, limit: int = 6) -> List[Dict[str, str]]:
     return messages
 
 
-def _require_state_api(context: ToolContext) -> Any:
-    if context is None or context.state_api is None:
-        raise ValueError("state_api is required in ToolContext")
-    return context.state_api
+def _require_state_api(state: dict) -> Any:
+    state_api = state.get("state_api") if isinstance(state, dict) else None
+    if state_api is None and isinstance(state, dict):
+        runtime_id = state.get("runtime_id")
+        if isinstance(runtime_id, str):
+            state_api = get_state_api(runtime_id)
+    if state_api is None:
+        raise ValueError("state_api is required in state")
+    return state_api
 
 
-class WebQueryArgs(BaseModel):
-    user_message: str
-
-
-class WebListArgs(BaseModel):
-    q: str
-    k: int
-
-
-class WebPageArgs(BaseModel):
-    urls: str
-
-
-def build_web_tools() -> List[tuple[BaseTool, Any]]:
+def build_web_tools() -> List[BaseTool]:
     return [
-        (
-            build_structured_tool(
-                web_query,
-                name="web.query",
-                description="Generate a web search query from user message and history.",
-                args_schema=WebQueryArgs,
-            ),
+        StructuredTool.from_function(
             web_query,
+            name="web.query",
+            description="Generate a web search query from user message and history.",
         ),
-        (
-            build_structured_tool(
-                web_list,
-                name="web.list",
-                description="Fetch a list of web search results.",
-                args_schema=WebListArgs,
-            ),
+        StructuredTool.from_function(
             web_list,
+            name="web.list",
+            description="Fetch a list of web search results.",
         ),
-        (
-            build_structured_tool(
-                web_page,
-                name="web.page",
-                description="Fetch web page content by URLs.",
-                args_schema=WebPageArgs,
-            ),
+        StructuredTool.from_function(
             web_page,
+            name="web.page",
+            description="Fetch web page content by URLs.",
         ),
-        (
-            build_structured_tool(
-                web_page_ref,
-                name="web.page_ref",
-                description="Fetch web pages and store content as an artifact.",
-                args_schema=WebPageArgs,
-            ),
+        StructuredTool.from_function(
             web_page_ref,
+            name="web.page_ref",
+            description="Fetch web pages and store content as an artifact.",
         ),
     ]

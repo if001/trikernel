@@ -3,60 +3,74 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional
 
-from langchain_core.tools import BaseTool
-from pydantic import BaseModel
+from langchain_core.tools import BaseTool, StructuredTool
+from langgraph.prebuilt import InjectedState
+from pydantic import BaseModel, Field
+from typing_extensions import Annotated
 
-from ..models import ToolContext
 from ..prompts import build_step_goal_prompt
-from .structured_tools import build_structured_tool
+from ..runtime import get_llm_api, get_state_api
 
 
-def _require_state_api(context: ToolContext) -> Any:
-    if context is None or context.state_api is None:
-        raise ValueError("state_api is required in ToolContext")
-    return context.state_api
+def _require_state_api(state: dict) -> Any:
+    state_api = state.get("state_api") if isinstance(state, dict) else None
+    if state_api is None and isinstance(state, dict):
+        runtime_id = state.get("runtime_id")
+        if isinstance(runtime_id, str):
+            state_api = get_state_api(runtime_id)
+    if state_api is None:
+        raise ValueError("state_api is required in state")
+    return state_api
+
+
+def _require_llm_api(state: dict) -> Any:
+    llm_api = state.get("llm_api") if isinstance(state, dict) else None
+    if llm_api is None and isinstance(state, dict):
+        runtime_id = state.get("runtime_id")
+        if isinstance(runtime_id, str):
+            llm_api = get_llm_api(runtime_id)
+    if llm_api is None:
+        raise ValueError("llm_api is required in state")
+    return llm_api
 
 
 class StepGoalArgs(BaseModel):
-    previous_goal: Optional[str] = None
-    step_context: Optional[Dict[str, object]] = None
-    user_message: Optional[str] = None
-    failure_reason: Optional[str] = None
+    previous_goal: Optional[str] = Field(default=None, description="Previous goal.")
+    step_context: Optional[Dict[str, object]] = Field(
+        default=None, description="Step context snapshot."
+    )
+    user_message: Optional[str] = Field(default=None, description="User message.")
+    failure_reason: Optional[str] = Field(default=None, description="Failure reason.")
 
 
 def step_goal(
-    previous_goal: Optional[str] = None,
-    step_context: Optional[Dict[str, Any]] = None,
-    user_message: Optional[str] = None,
-    failure_reason: Optional[str] = None,
-    *,
-    context: ToolContext,
+    payload: StepGoalArgs,
+    state: Annotated[dict, InjectedState],
 ) -> Dict[str, Any]:
-    state_api = _require_state_api(context)
-    if not context.task_id:
+    state_api = _require_state_api(state)
+    task_id = state.get("task_id") if isinstance(state, dict) else None
+    if not task_id:
         return {"step_goal": "", "error": "task_id_missing"}
-    task = state_api.task_get(context.task_id)
+    task = state_api.task_get(task_id)
     if not task:
         return {"step_goal": "", "error": "task_not_found"}
-    payload = task.payload or {}
+    payload_data = task.payload or {}
     fallback_goal = (
-        payload.get("step_goal")
-        or payload.get("user_message")
-        or payload.get("message")
-        or payload.get("prompt")
-        or user_message
-        or previous_goal
-        or json.dumps(payload, ensure_ascii=False)
+        payload_data.get("step_goal")
+        or payload_data.get("user_message")
+        or payload_data.get("message")
+        or payload_data.get("prompt")
+        or payload.user_message
+        or payload.previous_goal
+        or json.dumps(payload_data, ensure_ascii=False)
     )
-    llm_api = context.llm_api
-    if not llm_api:
-        return {"step_goal": fallback_goal}
+    llm_api = _require_llm_api(state)
     prompt = build_step_goal_prompt(
-        previous_goal=previous_goal,
-        failure_reason=failure_reason,
-        step_context=step_context,
-        user_message=user_message,
-        task_payload=payload,
+        previous_goal=payload.previous_goal,
+        failure_reason=payload.failure_reason,
+        step_context=payload.step_context,
+        user_message=payload.user_message,
+        task_payload=payload_data,
         history=[],
     )
     response_text = llm_api.generate(prompt, [])
@@ -70,15 +84,11 @@ def step_goal(
     }
 
 
-def build_system_tools() -> list[tuple[BaseTool, Any]]:
+def build_system_tools() -> list[BaseTool]:
     return [
-        (
-            build_structured_tool(
-                step_goal,
-                name="step.goal",
-                description="Generate or refine the next step goal.",
-                args_schema=StepGoalArgs,
-            ),
+        StructuredTool.from_function(
             step_goal,
+            name="step.goal",
+            description="Generate or refine the next step goal.",
         )
     ]

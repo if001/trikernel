@@ -28,7 +28,7 @@ class InMemoryChannel(WorkSender, WorkReceiver, ResultSender, ResultReceiver):
 
 
 class DummyToolAPI:
-    def tool_register(self, tool, handler=None) -> None:
+    def tool_register(self, tool) -> None:
         return None
 
     def tool_describe(self, tool_name):
@@ -36,9 +36,6 @@ class DummyToolAPI:
 
     def tool_search(self, query):
         return []
-
-    def tool_invoke(self, tool_name, args, tool_context):
-        raise KeyError(tool_name)
 
     def tool_list(self):
         return []

@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Protocol
 
+try:
+    from langgraph.checkpoint.base import BaseCheckpointSaver
+except Exception:  # pragma: no cover - typing fallback
+    class BaseCheckpointSaver:  # type: ignore[no-redef]
+        pass
+
+Checkpointer = BaseCheckpointSaver | bool | None
+
 from .models import Artifact, Task, TaskType
 
 
@@ -47,7 +55,7 @@ class ArtifactStore(Protocol):
 
 
 class MessageStoreAPI(Protocol):
-    checkpointer: object
+    checkpointer: Checkpointer
 
 
 class StateKernelAPI(Protocol):

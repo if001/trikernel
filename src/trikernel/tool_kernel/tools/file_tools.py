@@ -7,358 +7,184 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from pydantic import BaseModel
-from langchain_core.tools import BaseTool
-
-from ..models import ToolContext
-from .structured_tools import build_structured_tool
+from langchain_core.tools import BaseTool, StructuredTool
+from pydantic import BaseModel, Field
 
 
 def _workspace_root() -> Path:
     load_dotenv()
     root = os.environ.get("work_space_dir")
     if not root:
-        raise ValueError("work_space_dir is not set")
-    root_path = Path(root).expanduser().resolve()
-    if not root_path.exists() or not root_path.is_dir():
-        raise ValueError("work_space_dir is not a valid directory")
-    return root_path
+        return Path.cwd()
+    return Path(root)
 
 
 def _resolve_path(path: str) -> Path:
-    root = _workspace_root()
-    input_path = Path(path) if path else root
-    resolved = input_path if input_path.is_absolute() else root / input_path
-    resolved = resolved.expanduser().resolve()
-    try:
-        resolved.relative_to(root)
-    except ValueError as exc:
-        raise ValueError("path is outside work_space_dir") from exc
-    return resolved
+    base = _workspace_root()
+    target = Path(path)
+    if target.is_absolute():
+        return target
+    return (base / target).resolve()
 
 
-def _ensure_file_size(path: Path, max_bytes: int) -> None:
-    if max_bytes <= 0:
-        return
-    size = path.stat().st_size
-    if size > max_bytes:
-        raise ValueError("file is too large to read")
+def _format_stat(stat: os.stat_result) -> Dict[str, Any]:
+    return {
+        "size": stat.st_size,
+        "mode": stat.st_mode,
+        "mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+    }
 
 
 class TreeArgs(BaseModel):
-    path: str = ""
-    max_depth: int = 2
-    include_files: bool = True
-    max_entries: int = 200
+    path: str = Field(default=".", description="Root path.")
+    max_depth: int = Field(default=2, description="Max depth to traverse.")
 
 
 class StatArgs(BaseModel):
-    path: str
+    path: str = Field(..., description="Path to stat.")
 
 
 class FindArgs(BaseModel):
-    path: str = ""
-    name_pattern: str = "*"
-    max_depth: int = 3
-    file_type: str = "any"
-    max_results: int = 200
+    path: str = Field(default=".", description="Root path.")
+    pattern: str = Field(default="*", description="Glob pattern.")
 
 
 class RgArgs(BaseModel):
-    pattern: str
-    path: str = ""
-    ignore_case: bool = False
-    max_matches: int = 100
-    file_glob: Optional[str] = None
+    path: str = Field(default=".", description="Root path.")
+    pattern: str = Field(..., description="Regex pattern.")
+    max_results: int = Field(default=20, description="Max results.")
 
 
 class HeadArgs(BaseModel):
-    path: str
-    lines: int = 10
-    max_bytes: int = 1_000_000
+    path: str = Field(..., description="File path.")
+    lines: int = Field(default=20, description="Number of lines.")
 
 
 class TailArgs(BaseModel):
-    path: str
-    lines: int = 10
-    max_bytes: int = 1_000_000
+    path: str = Field(..., description="File path.")
+    lines: int = Field(default=20, description="Number of lines.")
 
 
 class ReadFileArgs(BaseModel):
-    path: str
-    max_bytes: int = 1_000_000
+    path: str = Field(..., description="File path.")
 
 
-def tree(
-    path: str = "",
-    max_depth: int = 2,
-    include_files: bool = True,
-    max_entries: int = 200,
-    *,
-    context: ToolContext,
-) -> Dict[str, Any]:
-    _ = context
-    root = _resolve_path(path)
-    if not root.exists():
-        return {"error": "path_not_found"}
-    lines: List[str] = []
-    entry_count = 0
+def tree(payload: TreeArgs) -> Dict[str, Any]:
+    target = _resolve_path(payload.path)
+    result: List[Dict[str, Any]] = []
 
-    def walk(current: Path, depth: int) -> None:
-        nonlocal entry_count
-        if depth > max_depth or entry_count >= max_entries:
+    def _walk(current: Path, depth: int) -> None:
+        if depth > payload.max_depth:
             return
-        try:
-            entries = sorted(current.iterdir(), key=lambda p: (not p.is_dir(), p.name))
-        except PermissionError:
-            lines.append(f"{current}: [permission denied]")
-            entry_count += 1
-            return
-        for entry in entries:
-            if entry_count >= max_entries:
-                return
-            rel = entry.relative_to(root)
+        for entry in sorted(current.iterdir()):
+            info = {
+                "path": str(entry),
+                "is_dir": entry.is_dir(),
+            }
+            result.append(info)
             if entry.is_dir():
-                lines.append(f"{rel}/")
-                entry_count += 1
-                walk(entry, depth + 1)
-            elif include_files:
-                lines.append(str(rel))
-                entry_count += 1
+                _walk(entry, depth + 1)
 
-    if root.is_dir():
-        walk(root, 0)
-    else:
-        lines.append(root.name)
-    return {
-        "path": str(root),
-        "entries": lines,
-        "truncated": entry_count >= max_entries,
-    }
+    _walk(target, 0)
+    return {"path": str(target), "entries": result}
 
 
-def stat(
-    path: str,
-    *,
-    context: ToolContext,
-) -> Dict[str, Any]:
-    _ = context
-    target = _resolve_path(path)
+def stat(payload: StatArgs) -> Dict[str, Any]:
+    target = _resolve_path(payload.path)
     if not target.exists():
-        return {"error": "path_not_found"}
-    info = target.stat()
-    return {
-        "path": str(target),
-        "is_file": target.is_file(),
-        "is_dir": target.is_dir(),
-        "size": info.st_size,
-        "modified_at": datetime.fromtimestamp(
-            info.st_mtime, tz=timezone.utc
-        ).isoformat(),
-    }
+        return {"path": str(target), "exists": False}
+    return {"path": str(target), "exists": True, "stat": _format_stat(target.stat())}
 
 
-def find(
-    path: str = "",
-    name_pattern: str = "*",
-    max_depth: int = 3,
-    file_type: str = "any",
-    max_results: int = 200,
-    *,
-    context: ToolContext,
-) -> Dict[str, Any]:
-    _ = context
-    root = _resolve_path(path)
-    if not root.exists():
-        return {"error": "path_not_found"}
-    results: List[str] = []
-    for current_root, dirs, files in os.walk(root):
-        rel_root = Path(current_root).relative_to(root)
-        depth = len(rel_root.parts)
-        if depth > max_depth:
-            dirs[:] = []
-            continue
-        candidates: List[Path] = []
-        if file_type in ("any", "dir"):
-            candidates.extend(Path(current_root) / d for d in dirs)
-        if file_type in ("any", "file"):
-            candidates.extend(Path(current_root) / f for f in files)
-        for candidate in candidates:
-            if len(results) >= max_results:
-                return {"paths": results, "truncated": True}
-            if not candidate.match(name_pattern):
-                continue
-            results.append(str(candidate.relative_to(root)))
-    return {"paths": results, "truncated": False}
+def find(payload: FindArgs) -> Dict[str, Any]:
+    target = _resolve_path(payload.path)
+    matches = [str(p) for p in target.rglob(payload.pattern)]
+    return {"path": str(target), "matches": matches}
 
 
-def rg(
-    pattern: str,
-    path: str = "",
-    ignore_case: bool = False,
-    max_matches: int = 100,
-    file_glob: Optional[str] = None,
-    *,
-    context: ToolContext,
-) -> Dict[str, Any]:
-    _ = context
-    root = _resolve_path(path)
-    if not root.exists():
-        return {"error": "path_not_found"}
-    flags = re.IGNORECASE if ignore_case else 0
-    try:
-        regex = re.compile(pattern, flags)
-    except re.error as exc:
-        return {"error": f"invalid_pattern: {exc}"}
+def rg(payload: RgArgs) -> Dict[str, Any]:
+    if not payload.pattern:
+        return {"matches": []}
+    target = _resolve_path(payload.path)
+    regex = re.compile(payload.pattern)
     matches: List[Dict[str, Any]] = []
-    files: List[Path]
-    if root.is_file():
-        files = [root]
-    else:
-        glob_pattern = file_glob or "**/*"
-        files = [p for p in root.glob(glob_pattern) if p.is_file()]
-    for file_path in files:
-        try:
-            content = file_path.read_text(
-                encoding="utf-8", errors="ignore"
-            ).splitlines()
-        except OSError:
+    for file_path in target.rglob("*"):
+        if not file_path.is_file():
             continue
-        for idx, line in enumerate(content, start=1):
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        for idx, line in enumerate(content.splitlines(), start=1):
             if regex.search(line):
-                matches.append(
-                    {
-                        "path": str(file_path.relative_to(root)),
-                        "line_number": idx,
-                        "line": line,
-                    }
-                )
-                if len(matches) >= max_matches:
-                    return {"matches": matches, "truncated": True}
-    return {"matches": matches, "truncated": False}
+                matches.append({"path": str(file_path), "line": idx, "text": line})
+                if len(matches) >= payload.max_results:
+                    return {"matches": matches}
+    return {"matches": matches}
 
 
-def head(
-    path: str,
-    lines: int = 10,
-    max_bytes: int = 1_000_000,
-    *,
-    context: ToolContext,
-) -> Dict[str, Any]:
-    _ = context
-    target = _resolve_path(path)
-    if not target.exists() or not target.is_file():
-        return {"error": "file_not_found"}
+def head(payload: HeadArgs) -> Dict[str, Any]:
+    target = _resolve_path(payload.path)
     try:
-        _ensure_file_size(target, max_bytes)
-        with target.open("r", encoding="utf-8", errors="ignore") as handle:
-            output = [handle.readline().rstrip("\n") for _ in range(max(lines, 0))]
-    except ValueError as exc:
-        return {"error": str(exc)}
-    return {"path": str(target), "lines": output}
-
-
-def tail(
-    path: str,
-    lines: int = 10,
-    max_bytes: int = 1_000_000,
-    *,
-    context: ToolContext,
-) -> Dict[str, Any]:
-    _ = context
-    target = _resolve_path(path)
-    if not target.exists() or not target.is_file():
-        return {"error": "file_not_found"}
-    try:
-        _ensure_file_size(target, max_bytes)
-        content = target.read_text(encoding="utf-8", errors="ignore").splitlines()
-        output = content[-max(lines, 0) :] if lines else []
-    except ValueError as exc:
-        return {"error": str(exc)}
-    return {"path": str(target), "lines": output}
-
-
-def read_file(
-    path: str,
-    max_bytes: int = 1_000_000,
-    *,
-    context: ToolContext,
-) -> Dict[str, Any]:
-    _ = context
-    target = _resolve_path(path)
-    if not target.exists() or not target.is_file():
-        return {"error": "file_not_found"}
-    try:
-        _ensure_file_size(target, max_bytes)
-        content = target.read_text(encoding="utf-8", errors="ignore")
-    except ValueError as exc:
-        return {"error": str(exc)}
+        content = target.read_text(encoding="utf-8").splitlines()[: payload.lines]
+    except OSError:
+        return {"path": str(target), "content": []}
     return {"path": str(target), "content": content}
 
 
-def build_file_tools() -> List[tuple[BaseTool, Any]]:
+def tail(payload: TailArgs) -> Dict[str, Any]:
+    target = _resolve_path(payload.path)
+    try:
+        content = target.read_text(encoding="utf-8").splitlines()[-payload.lines :]
+    except OSError:
+        return {"path": str(target), "content": []}
+    return {"path": str(target), "content": content}
+
+
+def read_file(payload: ReadFileArgs) -> Dict[str, Any]:
+    target = _resolve_path(payload.path)
+    try:
+        content = target.read_text(encoding="utf-8")
+    except OSError:
+        return {"path": str(target), "content": ""}
+    return {"path": str(target), "content": content}
+
+
+def build_file_tools() -> List[BaseTool]:
     return [
-        (
-            build_structured_tool(
-                tree,
-                name="fs.tree",
-                description="List files and directories under a path.",
-                args_schema=TreeArgs,
-            ),
+        StructuredTool.from_function(
             tree,
+            name="fs.tree",
+            description="List files and directories under a path.",
         ),
-        (
-            build_structured_tool(
-                stat,
-                name="fs.stat",
-                description="Get file or directory metadata.",
-                args_schema=StatArgs,
-            ),
+        StructuredTool.from_function(
             stat,
+            name="fs.stat",
+            description="Get file or directory metadata.",
         ),
-        (
-            build_structured_tool(
-                find,
-                name="fs.find",
-                description="Find files or directories by glob pattern.",
-                args_schema=FindArgs,
-            ),
+        StructuredTool.from_function(
             find,
+            name="fs.find",
+            description="Find files or directories by glob pattern.",
         ),
-        (
-            build_structured_tool(
-                rg,
-                name="fs.rg",
-                description="Search file contents with a regex.",
-                args_schema=RgArgs,
-            ),
+        StructuredTool.from_function(
             rg,
+            name="fs.rg",
+            description="Search file contents with a regex.",
         ),
-        (
-            build_structured_tool(
-                head,
-                name="fs.head",
-                description="Read the first N lines of a file.",
-                args_schema=HeadArgs,
-            ),
+        StructuredTool.from_function(
             head,
+            name="fs.head",
+            description="Read the first N lines of a file.",
         ),
-        (
-            build_structured_tool(
-                tail,
-                name="fs.tail",
-                description="Read the last N lines of a file.",
-                args_schema=TailArgs,
-            ),
+        StructuredTool.from_function(
             tail,
+            name="fs.tail",
+            description="Read the last N lines of a file.",
         ),
-        (
-            build_structured_tool(
-                read_file,
-                name="fs.read_file",
-                description="Read a file's content.",
-                args_schema=ReadFileArgs,
-            ),
+        StructuredTool.from_function(
             read_file,
+            name="fs.read_file",
+            description="Read a file's content.",
         ),
     ]

@@ -10,8 +10,8 @@ def main() -> None:
     kernel = ToolKernel()
     register_default_tools(kernel)
 
-    for tool, handler in build_web_tools():
-        kernel.tool_register(tool, handler)
+    for tool in build_web_tools():
+        kernel.tool_register(tool)
 
     print("Registered web tools:", [tool.name for tool in kernel.tool_list()])
 

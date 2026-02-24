@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, List, Optional, Sequence, Set, TypedDict
+from typing import Annotated, List, Optional, Sequence, Set, TypedDict, cast, Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, trim_messages
 from langchain_core.tools import BaseTool
@@ -13,17 +13,14 @@ from ..llm.config import load_ollama_config
 from ..logging import get_logger
 from ..models import Budget, RunResult, RunnerContext, SimpleStepContext
 from ..payloads import extract_llm_input
-from ...state_kernel.models import utc_now
-from .common import add_budget_exceeded_message
 from .prompts import (
     build_discover_tools_simple_prompt,
     build_tool_loop_prompt_simple,
     build_tool_loop_prompt_simple_for_notification,
     build_tool_loop_prompt_simple_for_worker,
 )
-from ...tool_kernel.context import tool_context_scope
-from ...tool_kernel.models import ToolContext
 from ...state_kernel.models import Task
+from ...tool_kernel.runtime import register_runtime
 
 logger = get_logger(__name__)
 
@@ -61,21 +58,28 @@ class LangGraphToolLoopRunner:
                 runner_context,
             )
             limit = _budget_limit(task, self._recursion_limit)
-            context = _build_tool_context(runner_context, task)
-            with tool_context_scope(context):
-                result = graph.invoke(
-                    {
-                        "messages": [HumanMessage(content=user_message)],
-                        "tool_set": set(),
-                        "step_context": step_context,
-                    },
-                    config={
-                        "recursion_limit": limit,
-                        "configurable": {"thread_id": runner_context.conversation_id},
-                    },
-                )
+            register_runtime(
+                runner_context.conversation_id,
+                runner_context.state_api,
+                runner_context.tool_llm_api,
+            )
+            result = graph.invoke(
+                {
+                    "messages": [HumanMessage(content=user_message)],
+                    "tool_set": set(),
+                    "step_context": step_context,
+                    "stop": False,
+                    "runtime_id": runner_context.conversation_id,
+                    "task_id": task.task_id,
+                },
+                config={
+                    "recursion_limit": limit,
+                    "configurable": {"thread_id": runner_context.conversation_id},
+                },
+                # debug=True,
+            )
             last_message = _last_ai_message(result.get("messages", []))
-            output = last_message.content if last_message else ""
+            output = _message_content_text(last_message) if last_message else ""
             return RunResult(
                 user_output=output,
                 task_state="done",
@@ -119,17 +123,6 @@ def _tools_text(runner_context: RunnerContext) -> str:
     return tools_text
 
 
-def _build_tool_context(runner_context: RunnerContext, task: Task) -> ToolContext:
-    return ToolContext(
-        runner_id=runner_context.runner_id,
-        task_id=task.task_id,
-        state_api=runner_context.state_api,
-        now=utc_now(),
-        llm_api=runner_context.tool_llm_api,
-        message_store=runner_context.message_store,
-    )
-
-
 def _initial_step_context(task: Task) -> SimpleStepContext:
     payload = task.payload or {}
     budget_payload = payload.get("budget") or {}
@@ -150,6 +143,9 @@ class ToolLoopState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     tool_set: Set[str]
     step_context: SimpleStepContext
+    stop: bool
+    runtime_id: str
+    task_id: str
 
 
 def _build_graph(
@@ -178,9 +174,10 @@ def _build_graph(
 
     def agent(state):
         if state["step_context"].budget.remaining_steps <= 0:
-            budget_messages: List[BaseMessage] = []
-            add_budget_exceeded_message(budget_messages)
-            return {"messages": budget_messages}
+            return {
+                "messages": [AIMessage(content=_budget_exceeded_text())],
+                "stop": True,
+            }
 
         if task_type == "user_request":
             prompt = build_tool_loop_prompt_simple(
@@ -199,6 +196,7 @@ def _build_graph(
             )
 
         allowed = _filter_tools(tools, state["tool_set"])
+        logger.info(f"allowed: {allowed}")
         messages = _trim_state_messages(state["messages"])
         response = model.bind_tools(allowed).invoke(
             list(messages) + [HumanMessage(content=prompt)]
@@ -210,12 +208,18 @@ def _build_graph(
             "step_context": state["step_context"],
         }
 
-    tool_node = ToolNode(list(tools))
+    tool_node = ToolNode(list(tools), handle_tool_errors=_handle_tool_error)
 
     graph.add_node("discover", discover)
     graph.add_node("agent", agent)
     graph.add_node("tools", tool_node)
-    graph.add_conditional_edges("agent", tools_condition, {"tools": "tools", END: END})
+
+    def route(state: ToolLoopState):
+        if state.get("stop"):
+            return END
+        return tools_condition(cast(dict[str, Any], state))
+
+    graph.add_conditional_edges("agent", route, {"tools": "tools", END: END})
     graph.add_edge("tools", "discover")
     graph.add_edge("discover", "agent")
     graph.set_entry_point("discover")
@@ -228,7 +232,8 @@ def _budget_limit(task: Task, default_limit: int) -> int:
     remaining = budget.get("remaining_steps")
     try:
         if remaining is not None:
-            return max(1, int(remaining))
+            steps = max(0, int(remaining))
+            return max(default_limit, steps * 3 + 3)
     except (TypeError, ValueError):
         return default_limit
     return default_limit
@@ -261,3 +266,22 @@ def _trim_state_messages(messages: Sequence[BaseMessage]) -> Sequence[BaseMessag
         strategy="last",
         token_counter=_token_counter,
     )
+
+
+def _budget_exceeded_text() -> str:
+    return (
+        "上限に達したためtool使用をストップしました。"
+        "ここまでのtoolの結果を利用し、調査が足りていない旨を含めて回答してください。"
+    )
+
+
+def _handle_tool_error(exc: Exception) -> str:
+    logger.error("tool execution error: %s", exc, exc_info=True)
+    return f"TOOL_ERROR: {exc}"
+
+
+def _message_content_text(message: AIMessage) -> str:
+    content = message.content
+    if isinstance(content, str):
+        return content
+    return str(content)

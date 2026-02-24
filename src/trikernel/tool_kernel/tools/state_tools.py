@@ -1,19 +1,25 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from langchain_core.tools import BaseTool, StructuredTool
+from langgraph.prebuilt import InjectedState
 from pydantic import BaseModel, Field
-from langchain_core.tools import BaseTool
+from typing_extensions import Annotated
 
-from ..models import ToolContext
-from .structured_tools import build_structured_tool
+from ..runtime import get_llm_api, get_state_api
 
 
-def _require_state_api(context: ToolContext) -> Any:
-    if context is None or context.state_api is None:
-        raise ValueError("state_api is required in ToolContext")
-    return context.state_api
+def _require_state_api(state: dict) -> Any:
+    state_api = state.get("state_api") if isinstance(state, dict) else None
+    if state_api is None and isinstance(state, dict):
+        runtime_id = state.get("runtime_id")
+        if isinstance(runtime_id, str):
+            state_api = get_state_api(runtime_id)
+    if state_api is None:
+        raise ValueError("state_api is required in state")
+    return state_api
 
 
 class UserRequestPayload(BaseModel):
@@ -33,6 +39,21 @@ class WorkPayload(BaseModel):
     )
 
 
+class WorkRepeatPayload(BaseModel):
+    message: str = Field(..., description="Work instruction message for the worker.")
+    repeat_interval_seconds: int = Field(
+        ..., description="Repeat interval in seconds (>= 3600)."
+    )
+    repeat_enabled: Optional[bool] = Field(
+        default=None, description="Whether repeating work is enabled."
+    )
+
+
+class WorkAtPayload(BaseModel):
+    message: str = Field(..., description="Work instruction message for the worker.")
+    run_at: str = Field(..., description="ISO8601 timestamp for scheduling.")
+
+
 class NotificationPayload(BaseModel):
     message: str = Field(..., description="Notification message to deliver.")
     severity: Optional[str] = Field(default=None, description="Optional severity.")
@@ -50,11 +71,11 @@ class TaskCreateWorkArgs(BaseModel):
 
 
 class TaskCreateWorkAtArgs(BaseModel):
-    payload: WorkPayload
+    payload: WorkAtPayload
 
 
 class TaskCreateWorkRepeatArgs(BaseModel):
-    payload: WorkPayload
+    payload: WorkRepeatPayload
 
 
 class TaskCreateNotificationArgs(BaseModel):
@@ -62,190 +83,212 @@ class TaskCreateNotificationArgs(BaseModel):
 
 
 class TaskUpdateArgs(BaseModel):
-    task_id: str
-    patch: Dict[str, object]
+    task_id: str = Field(..., description="Task id to update.")
+    patch: Dict[str, object] = Field(..., description="Patch payload for the task.")
 
 
 class TaskGetArgs(BaseModel):
-    task_id: str
+    task_id: str = Field(..., description="Task id to fetch.")
 
 
 class TaskListArgs(BaseModel):
-    task_type: Optional[str] = None
-    state: Optional[str] = "queued"
+    task_type: Optional[str] = Field(default=None, description="Filter by task type.")
+    state: Optional[str] = Field(default="queued", description="Filter by state.")
 
 
 class TaskClaimArgs(BaseModel):
-    filter_by: Dict[str, object]
-    claimer_id: str
-    ttl_seconds: int
+    filter_by: Dict[str, object] = Field(..., description="Filter for claiming.")
+    claimer_id: str = Field(..., description="Claimer id.")
+    ttl_seconds: int = Field(..., description="Claim TTL in seconds.")
 
 
 class TaskCompleteArgs(BaseModel):
-    task_id: str
+    task_id: str = Field(..., description="Task id to complete.")
 
 
 class TaskFailArgs(BaseModel):
-    task_id: str
-    error_info: Dict[str, object]
+    task_id: str = Field(..., description="Task id to fail.")
+    error_info: Dict[str, object] = Field(..., description="Error payload.")
 
 
 class ArtifactWriteArgs(BaseModel):
-    media_type: str
-    body: str
-    metadata: Dict[str, object]
+    media_type: str = Field(..., description="Artifact media type.")
+    body: str = Field(..., description="Artifact body.")
+    metadata: Dict[str, object] = Field(..., description="Artifact metadata.")
 
 
 class ArtifactReadArgs(BaseModel):
-    artifact_id: str
+    artifact_id: str = Field(..., description="Artifact id.")
 
 
 class ArtifactExtractArgs(BaseModel):
-    artifact_id: str
-    instructions: str
+    artifact_id: str = Field(..., description="Artifact id.")
+    instructions: str = Field(..., description="Extraction instructions.")
 
 
 class ArtifactSearchArgs(BaseModel):
-    query: Dict[str, object]
+    query: Dict[str, object] = Field(..., description="Metadata query.")
 
 
 class EmptyArgs(BaseModel):
     pass
 
 
-def task_create_user_request(payload: Dict[str, Any], *, context: ToolContext) -> str:
-    state_api = _require_state_api(context)
-    return state_api.task_create("user_request", payload)
+def task_create_user_request(
+    payload: TaskCreateUserRequestArgs,
+    state: Annotated[dict, InjectedState],
+) -> str:
+    state_api = _require_state_api(state)
+    return state_api.task_create("user_request", payload.payload.model_dump())
 
 
-def task_create_work(payload: Dict[str, Any], *, context: ToolContext) -> str:
-    state_api = _require_state_api(context)
-    return state_api.task_create("work", payload)
+def task_create_work(
+    payload: TaskCreateWorkArgs,
+    state: Annotated[dict, InjectedState],
+) -> str:
+    state_api = _require_state_api(state)
+    return state_api.task_create("work", payload.payload.model_dump())
 
 
-def task_create_work_at(payload: Dict[str, Any], *, context: ToolContext) -> str:
-    run_at = payload.get("run_at")
-    if not run_at:
-        raise ValueError("run_at is required")
+def task_create_work_at(
+    payload: TaskCreateWorkAtArgs,
+    state: Annotated[dict, InjectedState],
+) -> str:
+    run_at = payload.payload.run_at
     _validate_run_at(str(run_at))
-    state_api = _require_state_api(context)
-    return state_api.task_create("work", payload)
+    state_api = _require_state_api(state)
+    return state_api.task_create("work", payload.payload.model_dump())
 
 
-def task_create_work_repeat(payload: Dict[str, Any], *, context: ToolContext) -> str:
-    interval = payload.get("repeat_interval_seconds")
-    if interval is None:
-        raise ValueError("repeat_interval_seconds is required")
+def task_create_work_repeat(
+    payload: TaskCreateWorkRepeatArgs,
+    state: Annotated[dict, InjectedState],
+) -> str:
+    interval = payload.payload.repeat_interval_seconds
     if int(interval) < 3600:
         raise ValueError("repeat_interval_seconds must be >= 3600")
-    payload = dict(payload)
-    payload.setdefault("repeat_enabled", True)
-    state_api = _require_state_api(context)
-    return state_api.task_create("work", payload)
+    payload_dict = payload.payload.model_dump()
+    payload_dict.setdefault("repeat_enabled", True)
+    state_api = _require_state_api(state)
+    return state_api.task_create("work", payload_dict)
 
 
-def task_create_notification(payload: Dict[str, Any], *, context: ToolContext) -> str:
-    state_api = _require_state_api(context)
-    return state_api.task_create("notification", payload)
+def task_create_notification(
+    payload: TaskCreateNotificationArgs,
+    state: Annotated[dict, InjectedState],
+) -> str:
+    state_api = _require_state_api(state)
+    return state_api.task_create("notification", payload.payload.model_dump())
 
 
 def task_update(
-    task_id: str, patch: Dict[str, Any], *, context: ToolContext
+    payload: TaskUpdateArgs,
+    state: Annotated[dict, InjectedState],
 ) -> Optional[Dict[str, Any]]:
-    state_api = _require_state_api(context)
-    task = state_api.task_update(task_id, patch)
+    state_api = _require_state_api(state)
+    task = state_api.task_update(payload.task_id, payload.patch)
     return task.to_dict() if task else None
 
 
-def task_get(task_id: str, *, context: ToolContext) -> Optional[Dict[str, Any]]:
-    state_api = _require_state_api(context)
-    task = state_api.task_get(task_id)
+def task_get(
+    payload: TaskGetArgs,
+    state: Annotated[dict, InjectedState],
+) -> Optional[Dict[str, Any]]:
+    state_api = _require_state_api(state)
+    task = state_api.task_get(payload.task_id)
     return task.to_dict() if task else None
 
 
 def task_list(
-    task_type: Optional[str] = None,
-    state: Optional[str] = "queued",
-    *,
-    context: ToolContext,
+    payload: TaskListArgs,
+    state: Annotated[dict, InjectedState],
 ) -> List[Dict[str, Any]]:
-    state_api = _require_state_api(context)
-    return [task.to_dict() for task in state_api.task_list(task_type, state)]
+    state_api = _require_state_api(state)
+    return [task.to_dict() for task in state_api.task_list(payload.task_type, payload.state)]
 
 
 def task_claim(
-    filter_by: Dict[str, Any],
-    claimer_id: str,
-    ttl_seconds: int,
-    *,
-    context: ToolContext,
+    payload: TaskClaimArgs,
+    state: Annotated[dict, InjectedState],
 ) -> Optional[str]:
-    state_api = _require_state_api(context)
-    return state_api.task_claim(filter_by, claimer_id, ttl_seconds)
+    state_api = _require_state_api(state)
+    return state_api.task_claim(payload.filter_by, payload.claimer_id, payload.ttl_seconds)
 
 
 def task_complete(
-    task_id: str, *, context: ToolContext
+    payload: TaskCompleteArgs,
+    state: Annotated[dict, InjectedState],
 ) -> Optional[Dict[str, Any]]:
-    state_api = _require_state_api(context)
-    task = state_api.task_complete(task_id)
+    state_api = _require_state_api(state)
+    task = state_api.task_complete(payload.task_id)
     return task.to_dict() if task else None
 
 
 def task_fail(
-    task_id: str, error_info: Dict[str, Any], *, context: ToolContext
+    payload: TaskFailArgs,
+    state: Annotated[dict, InjectedState],
 ) -> Optional[Dict[str, Any]]:
-    state_api = _require_state_api(context)
-    task = state_api.task_fail(task_id, error_info)
+    state_api = _require_state_api(state)
+    task = state_api.task_fail(payload.task_id, payload.error_info)
     return task.to_dict() if task else None
 
 
 def artifact_write(
-    media_type: str, body: str, metadata: Dict[str, Any], *, context: ToolContext
-) -> str:
-    state_api = _require_state_api(context)
-    return state_api.artifact_write(media_type, body, metadata)
+    payload: ArtifactWriteArgs,
+    state: Annotated[dict, InjectedState],
+) -> Dict[str, Any]:
+    state_api = _require_state_api(state)
+    artifact_id = state_api.artifact_write(
+        payload.media_type, payload.body, payload.metadata
+    )
+    return {"artifact_id": artifact_id}
 
 
 def artifact_read(
-    artifact_id: str, *, context: ToolContext
+    payload: ArtifactReadArgs,
+    state: Annotated[dict, InjectedState],
 ) -> Optional[Dict[str, Any]]:
-    state_api = _require_state_api(context)
-    artifact = state_api.artifact_read(artifact_id)
+    state_api = _require_state_api(state)
+    artifact = state_api.artifact_read(payload.artifact_id)
     return artifact.to_dict() if artifact else None
 
 
 def artifact_extract(
-    artifact_id: str,
-    instructions: str,
-    *,
-    context: ToolContext,
+    payload: ArtifactExtractArgs,
+    state: Annotated[dict, InjectedState],
 ) -> Dict[str, Any]:
-    state_api = _require_state_api(context)
-    artifact = state_api.artifact_read(artifact_id)
+    state_api = _require_state_api(state)
+    artifact = state_api.artifact_read(payload.artifact_id)
     if not artifact:
-        return {"error": "artifact_not_found"}
-    if not context.llm_api:
-        return {"error": "llm_api_required"}
-    prompt = (
-        "Extract the requested information from the artifact content.\n"
-        f"Instructions: {instructions}\n"
-        f"Artifact content: {artifact.body}\n"
-        "Return only the extracted result."
-    )
-    extracted = context.llm_api.generate(prompt, [])
-    return {"artifact_id": artifact_id, "result": extracted}
+        return {"artifact_id": payload.artifact_id, "error": "not_found"}
+
+    llm_api = state.get("llm_api") if isinstance(state, dict) else None
+    if llm_api is None and isinstance(state, dict):
+        runtime_id = state.get("runtime_id")
+        if isinstance(runtime_id, str):
+            llm_api = get_llm_api(runtime_id)
+    if not llm_api:
+        return {"artifact_id": payload.artifact_id, "error": "llm_api_required"}
+
+    prompt = f"extract instructions: {payload.instructions}\n{artifact.body}"
+    extracted = llm_api.generate(prompt, [])
+    return {"artifact_id": payload.artifact_id, "result": extracted}
 
 
 def artifact_search(
-    query: Dict[str, Any], *, context: ToolContext
+    payload: ArtifactSearchArgs,
+    state: Annotated[dict, InjectedState],
 ) -> List[Dict[str, Any]]:
-    state_api = _require_state_api(context)
-    return [artifact.to_dict() for artifact in state_api.artifact_search(query)]
+    state_api = _require_state_api(state)
+    return [artifact.to_dict() for artifact in state_api.artifact_search(payload.query)]
 
 
-def artifact_list(*, context: ToolContext) -> List[Dict[str, Any]]:
-    state_api = _require_state_api(context)
+def artifact_list(
+    payload: EmptyArgs,
+    state: Annotated[dict, InjectedState],
+) -> List[Dict[str, Any]]:
+    _ = payload
+    state_api = _require_state_api(state)
     artifacts = state_api.artifact_list()
     result = []
     for artifact in artifacts:
@@ -260,151 +303,87 @@ def artifact_list(*, context: ToolContext) -> List[Dict[str, Any]]:
     return result
 
 
-def build_state_tools() -> List[tuple[BaseTool, Any]]:
+def build_state_tools() -> List[BaseTool]:
     return [
-        (
-            build_structured_tool(
-                task_create_user_request,
-                name="task.create_user_request",
-                description="Create a user_request task.",
-                args_schema=TaskCreateUserRequestArgs,
-            ),
+        StructuredTool.from_function(
             task_create_user_request,
+            name="task.create_user_request",
+            description="Create a user_request task.",
         ),
-        (
-            build_structured_tool(
-                task_create_work,
-                name="task.create_work",
-                description="Create a work task.",
-                args_schema=TaskCreateWorkArgs,
-            ),
+        StructuredTool.from_function(
             task_create_work,
+            name="task.create_work",
+            description="Create a work task.",
         ),
-        (
-            build_structured_tool(
-                task_create_work_at,
-                name="task.create_work_at",
-                description="Create a scheduled work task.",
-                args_schema=TaskCreateWorkAtArgs,
-            ),
+        StructuredTool.from_function(
             task_create_work_at,
+            name="task.create_work_at",
+            description="Create a scheduled work task.",
         ),
-        (
-            build_structured_tool(
-                task_create_work_repeat,
-                name="task.create_work_repeat",
-                description="Create a repeating work task.",
-                args_schema=TaskCreateWorkRepeatArgs,
-            ),
+        StructuredTool.from_function(
             task_create_work_repeat,
+            name="task.create_work_repeat",
+            description="Create a repeating work task.",
         ),
-        (
-            build_structured_tool(
-                task_create_notification,
-                name="task.create_notification",
-                description="Create a notification task.",
-                args_schema=TaskCreateNotificationArgs,
-            ),
+        StructuredTool.from_function(
             task_create_notification,
+            name="task.create_notification",
+            description="Create a notification task.",
         ),
-        (
-            build_structured_tool(
-                task_update,
-                name="task.update",
-                description="Update a task with a patch payload.",
-                args_schema=TaskUpdateArgs,
-            ),
+        StructuredTool.from_function(
             task_update,
+            name="task.update",
+            description="Update a task with a patch payload.",
         ),
-        (
-            build_structured_tool(
-                task_get,
-                name="task.get",
-                description="Get a task by id.",
-                args_schema=TaskGetArgs,
-            ),
+        StructuredTool.from_function(
             task_get,
+            name="task.get",
+            description="Get a task by id.",
         ),
-        (
-            build_structured_tool(
-                task_list,
-                name="task.list",
-                description="List tasks by type/state.",
-                args_schema=TaskListArgs,
-            ),
+        StructuredTool.from_function(
             task_list,
+            name="task.list",
+            description="List tasks by type/state.",
         ),
-        (
-            build_structured_tool(
-                task_claim,
-                name="task.claim",
-                description="Claim a task for execution.",
-                args_schema=TaskClaimArgs,
-            ),
+        StructuredTool.from_function(
             task_claim,
+            name="task.claim",
+            description="Claim a task for execution.",
         ),
-        (
-            build_structured_tool(
-                task_complete,
-                name="task.complete",
-                description="Mark a task as complete.",
-                args_schema=TaskCompleteArgs,
-            ),
+        StructuredTool.from_function(
             task_complete,
+            name="task.complete",
+            description="Mark a task as complete.",
         ),
-        (
-            build_structured_tool(
-                task_fail,
-                name="task.fail",
-                description="Mark a task as failed.",
-                args_schema=TaskFailArgs,
-            ),
+        StructuredTool.from_function(
             task_fail,
+            name="task.fail",
+            description="Mark a task as failed.",
         ),
-        (
-            build_structured_tool(
-                artifact_write,
-                name="artifact.write",
-                description="Write an artifact and return its id.",
-                args_schema=ArtifactWriteArgs,
-            ),
+        StructuredTool.from_function(
             artifact_write,
+            name="artifact.write",
+            description="Write an artifact and return its id.",
         ),
-        (
-            build_structured_tool(
-                artifact_read,
-                name="artifact.read",
-                description="Read an artifact by id.",
-                args_schema=ArtifactReadArgs,
-            ),
+        StructuredTool.from_function(
             artifact_read,
+            name="artifact.read",
+            description="Read an artifact by id.",
         ),
-        (
-            build_structured_tool(
-                artifact_extract,
-                name="artifact.extract",
-                description="Extract information from an artifact using the LLM.",
-                args_schema=ArtifactExtractArgs,
-            ),
+        StructuredTool.from_function(
             artifact_extract,
+            name="artifact.extract",
+            description="Extract information from an artifact using the LLM.",
         ),
-        (
-            build_structured_tool(
-                artifact_search,
-                name="artifact.search",
-                description="Search artifacts by metadata.",
-                args_schema=ArtifactSearchArgs,
-            ),
+        StructuredTool.from_function(
             artifact_search,
+            name="artifact.search",
+            description="Search artifacts by metadata.",
         ),
-        (
-            build_structured_tool(
-                artifact_list,
-                name="artifact.list",
-                description="List stored artifacts.",
-                args_schema=EmptyArgs,
-            ),
+        StructuredTool.from_function(
             artifact_list,
+            name="artifact.list",
+            description="List stored artifacts.",
         ),
     ]
 
@@ -419,5 +398,3 @@ def _validate_run_at(run_at: str) -> None:
     now = datetime.now(timezone.utc)
     if parsed < now:
         raise ValueError("run_at must be in the future")
-    if parsed > now + timedelta(days=365):
-        raise ValueError("run_at must be within 1 year")

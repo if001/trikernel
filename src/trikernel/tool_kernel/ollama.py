@@ -7,9 +7,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from .config import OllamaConfig, load_ollama_config
 from .logging import get_logger
+from .protocols import ToolLLMBase
 
 
-class ToolOllamaLLM:
+class ToolOllamaLLM(ToolLLMBase):
     def __init__(
         self,
         config: Optional[OllamaConfig] = None,
