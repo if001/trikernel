@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from dotenv import load_dotenv
+from ..utils.env import load_env
 from langchain_core.documents import Document
 from langchain_core.tools import BaseTool
 from langchain_ollama import OllamaEmbeddings
@@ -83,10 +83,9 @@ class ToolKernel:
 
 
 def _init_tool_search(data_dir: Path) -> HybridSearchIndex:
-    load_dotenv()
+    load_env()
     base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     embed_model = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
     embeddings = OllamaEmbeddings(model=embed_model, base_url=base_url)
     persist_dir = data_dir / "search_tools"
     return HybridSearchIndex(persist_dir, "tools", embeddings)
-

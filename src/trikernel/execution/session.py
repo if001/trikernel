@@ -49,6 +49,7 @@ class TrikernelSession:
         runner_id: str = "main",
         claim_ttl_seconds: int = 30,
         main_runner_timeout_seconds: int = 60 * 10,
+        enable_memory_updates: bool = True,
     ) -> None:
         self._state_api = state_api
         self._tool_api = tool_api
@@ -62,6 +63,7 @@ class TrikernelSession:
         self._runner_id = runner_id
         self._claim_ttl_seconds = claim_ttl_seconds
         self._main_runner_timeout_seconds = main_runner_timeout_seconds
+        self._enable_memory_updates = enable_memory_updates
         self._runtime_loop: Optional[asyncio.AbstractEventLoop] = None
         self._runtime_thread: Optional[threading.Thread] = None
         self._dispatcher: Optional[WorkDispatcher] = None
@@ -108,7 +110,7 @@ class TrikernelSession:
         if result.stream_chunks:
             assistant_message = "".join(result.stream_chunks) or assistant_message
         self._finalize_task(task, result)
-        if result.task_state == "done":
+        if result.task_state == "done" and self._enable_memory_updates:
             self._enqueue_memory_update(message, assistant_message)
         return MessageResult(
             message=assistant_message,

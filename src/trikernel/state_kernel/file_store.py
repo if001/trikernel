@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from uuid import uuid4
 
-from dotenv import load_dotenv
+from ..utils.env import load_env
 from langchain_ollama import OllamaEmbeddings
 from langchain_core.documents import Document
 
@@ -298,7 +298,7 @@ def _matches_query(artifact: Artifact, query: Dict[str, Any]) -> bool:
 
 
 def _init_artifact_search(data_dir: Path) -> HybridSearchIndex:
-    load_dotenv()
+    load_env()
     base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     embed_model = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
     embeddings = OllamaEmbeddings(model=embed_model, base_url=base_url)

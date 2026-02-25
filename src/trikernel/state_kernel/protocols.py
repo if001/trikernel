@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Protocol
+from typing import Any, Dict, Iterable, List, Optional, Protocol, TypeAlias
 
-try:
-    from langgraph.checkpoint.base import BaseCheckpointSaver
-except Exception:  # pragma: no cover - typing fallback
-    class BaseCheckpointSaver:  # type: ignore[no-redef]
-        pass
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
-Checkpointer = BaseCheckpointSaver | bool | None
+Checkpointer = BaseCheckpointSaver
 
 from .models import Artifact, Task, TaskType
 

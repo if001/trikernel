@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from typing import Annotated, List, Optional, Sequence, Set, TypedDict, cast, Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, trim_messages
 from langchain_core.tools import BaseTool
 from langchain_ollama import ChatOllama
+from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -65,33 +67,74 @@ class LangGraphToolLoopRunner:
                 runner_context.state_api,
                 runner_context.tool_llm_api,
             )
-            result = graph.invoke(
-                {
-                    "messages": [HumanMessage(content=user_message)],
-                    "tool_set": set(),
-                    "step_context": step_context,
-                    "stop": False,
-                    "runtime_id": runner_context.conversation_id,
-                    "task_id": task.task_id,
+            config = {
+                "recursion_limit": limit,
+                "configurable": {
+                    "thread_id": runner_context.conversation_id,
+                    "langgraph_user_id": runner_context.conversation_id,
                 },
-                config={
-                    "recursion_limit": limit,
-                    "configurable": {
-                        "thread_id": runner_context.conversation_id,
-                        "langgraph_user_id": runner_context.conversation_id,
+            }
+            try:
+                result = graph.invoke(
+                    {
+                        "messages": [HumanMessage(content=user_message)],
+                        "tool_set": set(),
+                        "step_context": step_context,
+                        "stop": False,
+                        "runtime_id": runner_context.conversation_id,
+                        "task_id": task.task_id,
                     },
-                },
-                # debug=True,
-            )
-            last_message = _last_ai_message(result.get("messages", []))
-            output = _message_content_text(last_message) if last_message else ""
-            return RunResult(
-                user_output=output,
-                task_state="done",
-                artifact_refs=[],
-                error=None,
-                stream_chunks=[],
-            )
+                    config=config,
+                    # debug=True,
+                )
+                last_message = _last_ai_message(result.get("messages", []))
+                output = _message_content_text(last_message) if last_message else ""
+                return RunResult(
+                    user_output=output,
+                    task_state="done",
+                    artifact_refs=[],
+                    error=None,
+                    stream_chunks=[],
+                )
+            except GraphRecursionError:
+                logger.warning("langgraph recursion limit hit: %s", task.task_id)
+                messages = _load_checkpoint_messages(
+                    runner_context.message_store.checkpointer,
+                    config,
+                )
+                if not messages:
+                    return RunResult(
+                        user_output=_budget_exceeded_text(),
+                        task_state="done",
+                        artifact_refs=[],
+                        error=None,
+                        stream_chunks=[],
+                    )
+                messages = list(messages)
+                memory_context_text = _build_memory_context(
+                    runner_context.store,
+                    runner_context.conversation_id,
+                    user_message,
+                )
+                messages.append(AIMessage(content=_budget_exceeded_text()))
+                followup_prompt = "ここまでのツール結果を使い、途中であることを明記して回答してください。"
+                if memory_context_text:
+                    followup_prompt = (
+                        f"{followup_prompt}\n\nMemory context:\n{memory_context_text}\n"
+                    )
+                response = (self._model or _default_model()).invoke(
+                    list(_trim_state_messages(messages))
+                    + [HumanMessage(content=followup_prompt)]
+                )
+                messages.append(response)
+                output = _message_content_text(response)
+                return RunResult(
+                    user_output=output,
+                    task_state="done",
+                    artifact_refs=[],
+                    error=None,
+                    stream_chunks=[],
+                )
         except Exception as exc:
             logger.error("langgraph runner failed: %s", task.task_id, exc_info=True)
             return RunResult(
@@ -167,10 +210,16 @@ def _build_graph(
 
     def discover(state):
         messages = _trim_state_messages(state["messages"])
+        memory_context_text = _build_memory_context(
+            store,
+            runner_context.conversation_id,
+            user_message,
+        )
         prompt = build_discover_tools_simple_prompt(
             user_input=user_message,
             tools_text=tools_text,
             step_context_text=state["step_context"].to_str(),
+            memory_context_text=memory_context_text,
         )
         response = model.invoke(list(messages) + [HumanMessage(content=prompt)])
         query = response.content or ""
@@ -185,20 +234,28 @@ def _build_graph(
                 "stop": True,
             }
 
+        memory_context_text = _build_memory_context(
+            store,
+            runner_context.conversation_id,
+            user_message,
+        )
         if task_type == "user_request":
             prompt = build_tool_loop_prompt_simple(
                 user_message=user_message,
                 step_context_text=state["step_context"].to_str(),
+                memory_context_text=memory_context_text,
             )
         elif task_type == "notification":
             prompt = build_tool_loop_prompt_simple_for_notification(
                 message=user_message,
                 step_context_text=state["step_context"].to_str(),
+                memory_context_text=memory_context_text,
             )
         else:
             prompt = build_tool_loop_prompt_simple_for_worker(
                 message=user_message,
                 step_context_text=state["step_context"].to_str(),
+                memory_context_text=memory_context_text,
             )
 
         allowed = _filter_tools(tools, state["tool_set"])
@@ -296,3 +353,90 @@ def _message_content_text(message: AIMessage) -> str:
     if isinstance(content, str):
         return content
     return str(content)
+
+
+def _load_checkpoint_messages(
+    checkpointer, config: dict
+) -> Sequence[BaseMessage]:
+    try:
+        checkpoint_tuple = checkpointer.get_tuple(config)
+    except Exception:
+        logger.error("failed to load checkpoint messages", exc_info=True)
+        return []
+    if not checkpoint_tuple:
+        return []
+    checkpoint = checkpoint_tuple.checkpoint
+    channel_values = checkpoint.get("channel_values", {})
+    messages = channel_values.get("messages")
+    if isinstance(messages, list):
+        return messages
+    return []
+
+
+def _build_memory_context(
+    store: BaseStore | None,
+    conversation_id: str,
+    query: str,
+) -> str:
+    if store is None:
+        return ""
+    try:
+        profile_items = store.search(
+            ("memory", conversation_id, "profile"),
+            limit=3,
+        )
+        semantic_items = (
+            store.search(
+                ("memory", conversation_id, "semantic"),
+                query=query,
+                limit=3,
+            )
+            if query
+            else []
+        )
+        episodic_items = (
+            store.search(
+                ("memory", conversation_id, "episodic"),
+                query=query,
+                limit=3,
+            )
+            if query
+            else []
+        )
+    except Exception:
+        logger.error("failed to load memory context", exc_info=True)
+        return ""
+
+    sections: list[str] = []
+    if profile_items:
+        sections.append("Profile:\n" + _format_memory_items(profile_items))
+    if semantic_items:
+        sections.append("Semantic:\n" + _format_memory_items(semantic_items, True))
+    if episodic_items:
+        sections.append("Episodic:\n" + _format_memory_items(episodic_items, True))
+    return "\n".join(sections)
+
+
+def _format_memory_items(items: Sequence[object], include_score: bool = False) -> str:
+    lines: list[str] = []
+    for item in items:
+        line = _format_memory_item(item, include_score)
+        if line:
+            lines.append(f"- {line}")
+    return "\n".join(lines)
+
+
+def _format_memory_item(item: object, include_score: bool) -> str:
+    value = getattr(item, "value", None)
+    key = getattr(item, "key", None)
+    score = getattr(item, "score", None)
+    if isinstance(value, dict):
+        payload: dict[str, object] = {"value": value}
+        if key:
+            payload["key"] = key
+        if include_score and score is not None:
+            payload["score"] = score
+        return json.dumps(payload, ensure_ascii=False)
+    if value is not None:
+        return str(value)
+    return ""

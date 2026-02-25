@@ -6,13 +6,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from dotenv import load_dotenv
+from ...utils.env import load_env
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
 
 def _workspace_root() -> Path:
-    load_dotenv()
+    load_env()
     root = os.environ.get("work_space_dir")
     if not root:
         return Path.cwd()

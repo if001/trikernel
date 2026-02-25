@@ -80,7 +80,9 @@ def build_tool_loop_prompt(
 def build_tool_loop_prompt_simple(
     user_message: str,
     step_context_text: str,
+    memory_context_text: str = "",
 ) -> str:
+    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
     prompt = (
         "あなたはメインエージェントです。\n"
         "ユーザー入力(user_input)をタスクとして、タスクを完了するために適切にツールを選択してください\n"
@@ -96,6 +98,7 @@ def build_tool_loop_prompt_simple(
         "他のワーカーの状況は、task.listで取得可能です\n"
         "過去の出力が必要な場合は、artifact.search で ID を検索し、artifact.read で読み込んでください。\n\n"
         f"User input: {user_message}\n"
+        f"{memory_block}"
         f"Step context: {step_context_text}\n"
     )
     return prompt
@@ -104,7 +107,9 @@ def build_tool_loop_prompt_simple(
 def build_tool_loop_prompt_simple_for_notification(
     message: str,
     step_context_text: str,
+    memory_context_text: str = "",
 ) -> str:
+    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
     prompt = (
         "あなたは通知者です。\n"
         "ワーカーからの成果物が与えられます。ユーザーへの応答を生成してください。"
@@ -118,6 +123,7 @@ def build_tool_loop_prompt_simple_for_notification(
         "task.create_notificationを使ってはいけません。\n"
         "成果物を更に調査する必要はありません\n\n"
         f"Worker input: {message}\n"
+        f"{memory_block}"
         f"Step context: {step_context_text}\n"
     )
     return prompt
@@ -126,7 +132,9 @@ def build_tool_loop_prompt_simple_for_notification(
 def build_tool_loop_prompt_simple_for_worker(
     message: str,
     step_context_text: str,
+    memory_context_text: str = "",
 ) -> str:
+    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
     prompt = (
         "あたなはワーカーエージェントです。\n"
         "メインエージェントから定期実行するタスクや時間のかかるタスクの実行を命じられます。\n"
@@ -141,6 +149,7 @@ def build_tool_loop_prompt_simple_for_worker(
         "さらにタスクを分割する必要があれば、task.create_workでタスクを作成し、ワーカーにタスクを依頼できます。\n"
         "過去の出力が必要な場合は、artifact.search で ID を検索し、artifact.read で読み込んでください。\n\n"
         f"input: {message}\n"
+        f"{memory_block}"
         f"Step context: {step_context_text}\n"
     )
     return prompt
@@ -156,7 +165,9 @@ PERSONA = """- 一人称: 僕
 def build_tool_loop_followup_prompt(
     user_message: str,
     step_context_text: str,
+    memory_context_text: str = "",
 ) -> str:
+    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
     prompt = (
         "あなたは誠実で専門的なアシスタントです。\n"
         "これまでのツール実行結果に基づき、ユーザーの質問に対する最終的な回答を作成してください。\n\n"
@@ -171,6 +182,7 @@ def build_tool_loop_followup_prompt(
         "### 人格/性格\n"
         f"{PERSONA}\n\n"
         f"User input: {user_message}\n"
+        f"{memory_block}"
         f"Step context: {step_context_text}\n"
     )
     return prompt
@@ -179,7 +191,9 @@ def build_tool_loop_followup_prompt(
 def build_tool_loop_followup_prompt_for_notification(
     message: str,
     step_context_text: str,
+    memory_context_text: str = "",
 ) -> str:
+    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
     prompt = (
         "あなたは通知者です。\n"
         "ワーカーからの成果物が与えられます。成果物とこれまでのツール実行結果に基づき、ユーザーの質問に対する最終的な回答を作成してください。\n\n"
@@ -193,6 +207,7 @@ def build_tool_loop_followup_prompt_for_notification(
         "### 人格/性格\n"
         f"{PERSONA}\n\n"
         f"Worker input: {message}\n"
+        f"{memory_block}"
         f"Step context: {step_context_text}\n"
     )
     return prompt
@@ -262,7 +277,9 @@ def build_discover_tools_simple_prompt(
     user_input: str,
     tools_text: str,
     step_context_text: str,
+    memory_context_text: str = "",
 ) -> str:
+    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
     return (
         "# Role\n"
         "あなたは、ユーザーの入力を分析し、膨大なツールセットの中から最適なツールを検索するための「検索クエリ」を作成するエキスパートです。\n\n"
@@ -279,6 +296,7 @@ def build_discover_tools_simple_prompt(
         "装飾や構造などは出力してはいけません\n\n"
         "# Input Data\n"
         f"User Input: {user_input}\n"
+        f"{memory_block}"
         f"Step context: \n{step_context_text}\n"
         f"Available Tool Overview: {tools_text}\n"
     )

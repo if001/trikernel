@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Iterable, Sequence
 
 from langchain_core.messages import BaseMessage
@@ -71,6 +72,22 @@ class LangMemMemoryManager:
         # optimized prompt into the runner/config at the right cadence.
 
     async def update(
+        self,
+        messages: Sequence[BaseMessage],
+        *,
+        conversation_id: str,
+    ) -> None:
+        store_loop = getattr(self._store, "loop", None)
+        if store_loop is not None and store_loop is not asyncio.get_running_loop():
+            future = asyncio.run_coroutine_threadsafe(
+                self._update_in_store_loop(messages, conversation_id=conversation_id),
+                store_loop,
+            )
+            await asyncio.wrap_future(future)
+            return
+        await self._update_in_store_loop(messages, conversation_id=conversation_id)
+
+    async def _update_in_store_loop(
         self,
         messages: Sequence[BaseMessage],
         *,

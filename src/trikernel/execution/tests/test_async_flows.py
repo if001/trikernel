@@ -6,7 +6,12 @@ import time
 from trikernel.execution.dispatcher import DispatchConfig, PendingWork, WorkDispatcher
 from trikernel.execution.worker import WorkWorker
 from trikernel.execution.session import TrikernelSession
-from trikernel.execution.transports import ResultReceiver, ResultSender, WorkReceiver, WorkSender
+from trikernel.execution.transports import (
+    ResultReceiver,
+    ResultSender,
+    WorkReceiver,
+    WorkSender,
+)
 from trikernel.orchestration_kernel.models import LLMResponse, RunResult
 from trikernel.orchestration_kernel.memory_manager import LangMemMemoryManager
 from trikernel.state_kernel.kernel import StateKernel
@@ -88,12 +93,16 @@ def _run_async(coro) -> None:
     asyncio.run(coro)
 
 
+from pathlib import Path
+
+
 def test_async_flow_main_worker_serial(tmp_path):
     async def _run():
         state = StateKernel(data_dir=tmp_path)
-        async with build_memory_store(data_dir=tmp_path) as store, build_message_store(
-            data_dir=tmp_path
-        ) as message_store:
+        async with (
+            build_memory_store(data_dir=tmp_path) as store,
+            build_message_store(data_dir=tmp_path) as message_store,
+        ):
             tool_api = DummyToolAPI()
             main_runner = StaticRunner("main done")
             worker_runner = StaticRunner("work done")
@@ -105,6 +114,7 @@ def test_async_flow_main_worker_serial(tmp_path):
                 tool_llm_api=DummyToolLLM(),
                 message_store=message_store,
                 store=store,
+                enable_memory_updates=False,
             )
 
             work_channel = ThreadSafeChannel()
@@ -115,18 +125,18 @@ def test_async_flow_main_worker_serial(tmp_path):
                 result_receiver=result_channel,
                 config=DispatchConfig(worker_count=1, poll_interval=0),
             )
-        worker = WorkWorker(
-            state_api=state,
-            message_store=message_store,
-            tool_api=tool_api,
-            runner=worker_runner,
-            llm_api=DummyLLM(),
-            tool_llm_api=DummyToolLLM(),
-            memory_manager=LangMemMemoryManager(store),
-            store=store,
-            work_receiver=work_channel,
-            result_sender=result_channel,
-        )
+            worker = WorkWorker(
+                state_api=state,
+                message_store=message_store,
+                tool_api=tool_api,
+                runner=worker_runner,
+                llm_api=DummyLLM(),
+                tool_llm_api=DummyToolLLM(),
+                memory_manager=LangMemMemoryManager(store),
+                store=store,
+                work_receiver=work_channel,
+                result_sender=result_channel,
+            )
 
             result = session.send_message("hello")
             assert result.message == "main done"
@@ -146,9 +156,10 @@ def test_async_flow_main_worker_serial(tmp_path):
 def test_async_flow_main_and_worker_parallel(tmp_path):
     async def _run():
         state = StateKernel(data_dir=tmp_path)
-        async with build_memory_store(data_dir=tmp_path) as store, build_message_store(
-            data_dir=tmp_path
-        ) as message_store:
+        async with (
+            build_memory_store(data_dir=tmp_path) as store,
+            build_message_store(data_dir=tmp_path) as message_store,
+        ):
             tool_api = DummyToolAPI()
             main_runner = StaticRunner("main done")
             release = threading.Event()
@@ -161,6 +172,7 @@ def test_async_flow_main_and_worker_parallel(tmp_path):
                 tool_llm_api=DummyToolLLM(),
                 message_store=message_store,
                 store=store,
+                enable_memory_updates=False,
             )
 
             work_channel = ThreadSafeChannel()
@@ -171,23 +183,25 @@ def test_async_flow_main_and_worker_parallel(tmp_path):
                 result_receiver=result_channel,
                 config=DispatchConfig(worker_count=1, poll_interval=0),
             )
-        worker = WorkWorker(
-            state_api=state,
-            message_store=message_store,
-            tool_api=tool_api,
-            runner=worker_runner,
-            llm_api=DummyLLM(),
-            tool_llm_api=DummyToolLLM(),
-            memory_manager=LangMemMemoryManager(store),
-            store=store,
-            work_receiver=work_channel,
-            result_sender=result_channel,
-        )
+            worker = WorkWorker(
+                state_api=state,
+                message_store=message_store,
+                tool_api=tool_api,
+                runner=worker_runner,
+                llm_api=DummyLLM(),
+                tool_llm_api=DummyToolLLM(),
+                memory_manager=LangMemMemoryManager(store),
+                store=store,
+                work_receiver=work_channel,
+                result_sender=result_channel,
+            )
 
             session.create_work_task({"message": "do"})
             await dispatcher.run_once()
 
-            worker_thread = threading.Thread(target=_run_async, args=(worker.run_once(),))
+            worker_thread = threading.Thread(
+                target=_run_async, args=(worker.run_once(),)
+            )
             worker_thread.start()
 
             start = time.monotonic()
@@ -251,7 +265,9 @@ def test_queue_timeout_flow(tmp_path):
     )
     task_id = state.task_create("work", {"message": "do"})
     dispatcher._pending.append(
-        PendingWork(task_id=task_id, enqueued_at=time.monotonic() - 5, timeout_seconds=1)
+        PendingWork(
+            task_id=task_id, enqueued_at=time.monotonic() - 5, timeout_seconds=1
+        )
     )
     dispatcher._fail_timed_out_pending()
     task = state.task_get(task_id)

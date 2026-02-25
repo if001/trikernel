@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from dotenv import load_dotenv
+from ..utils.env import load_env
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
@@ -19,19 +19,22 @@ class MessageStoreConfig:
 
 
 def load_message_store_config(data_dir: Optional[Path] = None) -> MessageStoreConfig:
-    load_dotenv()
-    base_dir = data_dir or Path(".state")
-    sqlite_path = Path(
-        os.environ.get(
-            "TRIKERNEL_CHECKPOINT_PATH",
-            str(base_dir / "checkpoints.sqlite"),
+    if data_dir is not None:
+        sqlite_path = Path(data_dir) / "checkpoints.sqlite"
+    else:
+        load_env()
+        base_dir = Path(".state")
+        sqlite_path = Path(
+            os.environ.get(
+                "TRIKERNEL_CHECKPOINT_PATH",
+                str(base_dir / "checkpoints.sqlite"),
+            )
         )
-    )
     return MessageStoreConfig(sqlite_path=sqlite_path)
 
 
 def _sqlite_conn_string(path: Path) -> str:
-    return f"sqlite+aiosqlite:///{path}"
+    return str(path)
 
 
 class LangGraphMessageStore(MessageStoreAPI):
@@ -66,4 +69,3 @@ async def _maybe_setup(checkpointer) -> None:
     maybe = checkpointer.setup()
     if hasattr(maybe, "__await__"):
         await maybe
-
