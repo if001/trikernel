@@ -7,8 +7,10 @@ from typing import Any, Dict, List, Optional
 from trikernel.utils.logging import get_logger
 
 from .file_store import JsonFileArtifactStore, JsonFileTaskStore
+from .memory_kernel import MemoryKernel
 from .models import Artifact, Task, TaskType
 from .protocols import ArtifactStore, StateKernelAPI, TaskStore
+from langgraph.store.base import BaseStore
 
 logger = get_logger(__name__)
 
@@ -19,11 +21,13 @@ class StateKernel(StateKernelAPI):
         task_store: Optional[TaskStore] = None,
         artifact_store: Optional[ArtifactStore] = None,
         data_dir: Optional[Path] = None,
+        memory_store: Optional[BaseStore] = None,
     ) -> None:
         if data_dir is None:
             data_dir = Path(".state")
         self._task_store = task_store or JsonFileTaskStore(data_dir)
         self._artifact_store = artifact_store or JsonFileArtifactStore(data_dir)
+        self._memory_store = memory_store
 
     def task_create(self, task_type: TaskType, payload: Dict[str, Any]) -> str:
         logger.info(f"task_create: {task_type}, {payload}")
@@ -75,3 +79,11 @@ class StateKernel(StateKernelAPI):
 
     def artifact_search(self, query: Dict[str, Any]) -> List[Artifact]:
         return list(self._artifact_store.search(query))
+
+    def set_memory_store(self, store: BaseStore) -> None:
+        self._memory_store = store
+
+    def memory_kernel(self, conversation_id: str) -> MemoryKernel | None:
+        if self._memory_store is None:
+            return None
+        return MemoryKernel(self._memory_store, conversation_id)

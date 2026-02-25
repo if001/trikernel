@@ -5,7 +5,8 @@ from trikernel.tool_kernel.protocols import ToolLLMBase
 
 
 class DummyStateAPI:
-    pass
+    def memory_kernel(self, conversation_id: str):
+        return None
 
 
 class DummyToolAPI:
@@ -33,7 +34,8 @@ class DummyMessageStore:
 
 
 class DummyStore:
-    pass
+    def search(self, *args, **kwargs):
+        return []
 
 
 class DummyLLM:

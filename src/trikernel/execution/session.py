@@ -16,7 +16,7 @@ from .worker import WorkWorker
 from .loop import ExecutionLoop, LoopConfig
 from ..orchestration_kernel.models import RunResult, RunnerContext
 from ..orchestration_kernel.protocols import OrchestrationLLM, Runner
-from ..orchestration_kernel.memory_manager import LangMemMemoryManager
+from ..state_kernel.memory_manager import LangMemMemoryManager
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
 from ..tool_kernel.protocols import ToolLLMBase
@@ -70,6 +70,8 @@ class TrikernelSession:
         self._worker: Optional[WorkWorker] = None
         self._loop: Optional[ExecutionLoop] = None
         self._loop_task: Optional[asyncio.Task] = None
+        if hasattr(self._state_api, "set_memory_store"):
+            self._state_api.set_memory_store(self._store)
 
     def send_message(self, message: str, stream: bool = False) -> MessageResult:
         task_id = self._state_api.task_create(

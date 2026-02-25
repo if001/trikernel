@@ -12,15 +12,9 @@ from langmem import (
     create_prompt_optimizer,
 )
 
-from trikernel.state_kernel.memory_schemas import (
-    Episode,
-    Procedure,
-    Triple,
-    UserProfile,
-)
-from trikernel.utils.logging import get_logger
-
-from .llm.config import load_ollama_config
+from .config import load_ollama_config
+from .memory_schemas import Episode, Procedure, Triple, UserProfile
+from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
 

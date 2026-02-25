@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langgraph.store.base import BaseStore
 
 from ..orchestration_kernel.models import RunResult, RunnerContext
-from ..orchestration_kernel.memory_manager import LangMemMemoryManager
+from ..state_kernel.memory_manager import LangMemMemoryManager
 from ..orchestration_kernel.protocols import OrchestrationLLM, Runner
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
@@ -45,6 +45,8 @@ class WorkWorker:
         self._store = store
         self._work_receiver = work_receiver or ZmqWorkReceiver(work_endpoint)
         self._result_sender = result_sender or ZmqResultSender(result_endpoint)
+        if hasattr(self.state_api, "set_memory_store"):
+            self.state_api.set_memory_store(store)
 
     async def run_once(self) -> None:
         payload = await self._work_receiver.try_recv_json()

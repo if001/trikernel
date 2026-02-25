@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Annotated, List, Optional, Sequence, Set, TypedDict, cast, Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, trim_messages
@@ -10,7 +9,6 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.store.base import BaseStore
 
 from ..llm.config import load_ollama_config
 from ..logging import get_logger
@@ -112,7 +110,7 @@ class LangGraphToolLoopRunner:
                     )
                 messages = list(messages)
                 memory_context_text = _build_memory_context(
-                    runner_context.store,
+                    runner_context.state_api,
                     runner_context.conversation_id,
                     user_message,
                 )
@@ -204,14 +202,14 @@ def _build_graph(
     step_context: SimpleStepContext,
     task_type: str,
     runner_context: RunnerContext,
-    store: BaseStore | None,
+    store,
 ):
     graph = StateGraph(ToolLoopState)
 
     def discover(state):
         messages = _trim_state_messages(state["messages"])
         memory_context_text = _build_memory_context(
-            store,
+            runner_context.state_api,
             runner_context.conversation_id,
             user_message,
         )
@@ -235,7 +233,7 @@ def _build_graph(
             }
 
         memory_context_text = _build_memory_context(
-            store,
+            runner_context.state_api,
             runner_context.conversation_id,
             user_message,
         )
@@ -374,69 +372,16 @@ def _load_checkpoint_messages(
 
 
 def _build_memory_context(
-    store: BaseStore | None,
+    state_api,
     conversation_id: str,
     query: str,
 ) -> str:
-    if store is None:
+    memory_kernel = state_api.memory_kernel(conversation_id)
+    if memory_kernel is None:
         return ""
-    try:
-        profile_items = store.search(
-            ("memory", conversation_id, "profile"),
-            limit=3,
-        )
-        semantic_items = (
-            store.search(
-                ("memory", conversation_id, "semantic"),
-                query=query,
-                limit=3,
-            )
-            if query
-            else []
-        )
-        episodic_items = (
-            store.search(
-                ("memory", conversation_id, "episodic"),
-                query=query,
-                limit=3,
-            )
-            if query
-            else []
-        )
-    except Exception:
-        logger.error("failed to load memory context", exc_info=True)
-        return ""
-
-    sections: list[str] = []
-    if profile_items:
-        sections.append("Profile:\n" + _format_memory_items(profile_items))
-    if semantic_items:
-        sections.append("Semantic:\n" + _format_memory_items(semantic_items, True))
-    if episodic_items:
-        sections.append("Episodic:\n" + _format_memory_items(episodic_items, True))
-    return "\n".join(sections)
-
-
-def _format_memory_items(items: Sequence[object], include_score: bool = False) -> str:
-    lines: list[str] = []
-    for item in items:
-        line = _format_memory_item(item, include_score)
-        if line:
-            lines.append(f"- {line}")
-    return "\n".join(lines)
-
-
-def _format_memory_item(item: object, include_score: bool) -> str:
-    value = getattr(item, "value", None)
-    key = getattr(item, "key", None)
-    score = getattr(item, "score", None)
-    if isinstance(value, dict):
-        payload: dict[str, object] = {"value": value}
-        if key:
-            payload["key"] = key
-        if include_score and score is not None:
-            payload["score"] = score
-        return json.dumps(payload, ensure_ascii=False)
-    if value is not None:
-        return str(value)
-    return ""
+    profile_text = memory_kernel.get_profile_context(limit=3)
+    semantic_text = memory_kernel.get_semantic_context(query, limit=3)
+    episodic_text = memory_kernel.get_episodic_context(query, limit=3)
+    return "\n".join(
+        part for part in (profile_text, semantic_text, episodic_text) if part
+    )

@@ -6,7 +6,7 @@ from trikernel.state_kernel.kernel import StateKernel
 from trikernel.state_kernel.message_store import build_message_store
 from trikernel.state_kernel.memory_store import build_memory_store
 from trikernel.orchestration_kernel.models import LLMResponse, RunResult
-from trikernel.orchestration_kernel.memory_manager import LangMemMemoryManager
+from trikernel.state_kernel.memory_manager import LangMemMemoryManager
 from trikernel.tool_kernel.protocols import ToolLLMBase
 
 

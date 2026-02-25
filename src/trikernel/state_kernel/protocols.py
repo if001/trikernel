@@ -7,6 +7,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 Checkpointer = BaseCheckpointSaver
 
 from .models import Artifact, Task, TaskType
+from .memory_kernel import MemoryKernel
 
 
 class TaskStore(Protocol):
@@ -91,3 +92,5 @@ class StateKernelAPI(Protocol):
     def artifact_list(self) -> List[Artifact]: ...
 
     def artifact_search(self, query: Dict[str, Any]) -> List[Artifact]: ...
+
+    def memory_kernel(self, conversation_id: str) -> MemoryKernel | None: ...
