@@ -199,6 +199,7 @@ class ToolLoopState(TypedDict):
     stop: bool
     runtime_id: str
     task_id: str
+    memory_context_text: str
 
 
 def _build_graph(
@@ -214,11 +215,7 @@ def _build_graph(
 
     def discover(state):
         messages = _trim_state_messages(state["messages"])
-        memory_context_text = _build_memory_context(
-            runner_context.state_api,
-            runner_context.conversation_id,
-            user_message,
-        )
+        memory_context_text = state.get("memory_context_text", "")
         system, prompt = build_discover_tools_simple_prompt(
             user_input=user_message,
             tools_text=tools_text,
@@ -249,11 +246,7 @@ def _build_graph(
                 "stop": True,
             }
 
-        memory_context_text = _build_memory_context(
-            runner_context.state_api,
-            runner_context.conversation_id,
-            user_message,
-        )
+        memory_context_text = state.get("memory_context_text", "")
         if task_type == "user_request":
             system, prompt = build_tool_loop_prompt_simple(
                 user_message=user_message,
@@ -302,12 +295,16 @@ def _build_graph(
 
     tool_node = ToolNode(list(tools), handle_tool_errors=_handle_tool_error)
 
-    def followup(state: ToolLoopState):
+    def build_memory(state: ToolLoopState):
         memory_context_text = _build_memory_context(
             runner_context.state_api,
             runner_context.conversation_id,
             user_message,
         )
+        return {"memory_context_text": memory_context_text}
+
+    def followup(state: ToolLoopState):
+        memory_context_text = state.get("memory_context_text", "")
         messages = _trim_state_messages(state["messages"])
         if task_type == "user_request":
             system, prompt = build_tool_loop_followup_prompt(
@@ -333,6 +330,7 @@ def _build_graph(
         )
         return {"messages": [response]}
 
+    graph.add_node("build_memory", build_memory)
     graph.add_node("discover", discover)
     graph.add_node("agent", agent)
     graph.add_node("tools", tool_node)
@@ -346,7 +344,8 @@ def _build_graph(
             return "followup"
         return "tools"
 
-    graph.set_entry_point("discover")
+    graph.set_entry_point("build_memory")
+    graph.add_edge("build_memory", "discover")
     graph.add_edge("discover", "agent")
     graph.add_conditional_edges(
         "agent", route, {"tools": "tools", "followup": "followup", END: END}
@@ -396,17 +395,18 @@ def _filter_tools(tools: Sequence[BaseTool], tool_set: Set[str]) -> List[BaseToo
 
 
 def keep_last_n_user_turns(
-    messages: List[BaseMessage], n_turns: int
-) -> List[BaseMessage]:
+    messages: Sequence[BaseMessage], n_turns: int
+) -> Sequence[BaseMessage]:
+    _messages = messages[:-1]  ## 一番最後は今回の入力なので取り除く
     count = 0
     start_idx = 0
-    for i in range(len(messages) - 1, -1, -1):
-        if isinstance(messages[i], HumanMessage):
+    for i in range(len(_messages) - 1, -1, -1):
+        if isinstance(_messages[i], HumanMessage):
             count += 1
             if count >= n_turns:
                 start_idx = i
                 break
-    return messages[start_idx:] if count >= n_turns else messages
+    return _messages[start_idx:] if count >= n_turns else _messages
 
 
 def _trim_state_messages(messages: Sequence[BaseMessage]) -> Sequence[BaseMessage]:
