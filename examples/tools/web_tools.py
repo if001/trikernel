@@ -23,7 +23,9 @@ class WebClientConfig:
 
 
 class WebQueryArgs(BaseModel):
-    user_message: str = Field(..., description="User message to summarize into a query.")
+    user_message: str = Field(
+        ..., description="User message to summarize into a query."
+    )
 
 
 class WebListArgs(BaseModel):
@@ -42,11 +44,11 @@ def load_web_client_config() -> WebClientConfig:
 
 
 def web_query(
-    payload: WebQueryArgs,
-    state: Annotated[dict, InjectedState],
+    user_message: str,
+    state: Annotated[dict, InjectedState] = {},
 ) -> str:
     history = _history_from_state(state)
-    messages = _build_query_messages(payload.user_message, history)
+    messages = _build_query_messages(user_message, history)
     config = load_ollama_config()
     payload_dict = {
         "model": config.small_model,
@@ -60,12 +62,13 @@ def web_query(
 
 
 def web_list(
-    payload: WebListArgs,
-    state: Annotated[dict, InjectedState],
+    q: str,
+    k: int = 5,
+    state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
     _ = state
     config = load_web_client_config()
-    payload_dict = {"q": payload.q, "k": payload.k}
+    payload_dict = {"q": q, "k": k}
     return _post_json(f"{config.base_url}/list", payload_dict)
 
 
@@ -151,17 +154,19 @@ def build_web_tools() -> List[BaseTool]:
             web_query,
             name="web.query",
             description="Generate a web search query from user message and history.",
+            args_schema=WebQueryArgs,
         ),
         StructuredTool.from_function(
             web_list,
             name="web.list",
             description="Fetch a list of web search results.",
+            args_schema=WebListArgs,
         ),
-        StructuredTool.from_function(
-            web_page,
-            name="web.page",
-            description="Fetch web page content by URLs.",
-        ),
+        # StructuredTool.from_function(
+        #     web_page,
+        #     name="web.page",
+        #     description="Fetch web page content by URLs.",
+        # ),
         StructuredTool.from_function(
             web_page_ref,
             name="web.page_ref",

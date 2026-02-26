@@ -231,6 +231,12 @@ def _build_graph(
             + list(messages)
             + [HumanMessage(content=prompt)]
         )
+        _in = (
+            [SystemMessage(content=system)]
+            + list(messages)
+            + [HumanMessage(content=prompt)]
+        )
+        logger.info(f"debug: {_in}")
         query = response.content or ""
         logger.info(f"debug: tool select query: {query}")
         selected = set(runner_context.tool_api.tool_search(str(query)))
@@ -269,8 +275,9 @@ def _build_graph(
 
         allowed = _filter_tools(tools, state["tool_set"])
         _tool_name = [v.name for v in allowed]
-        logger.info(f"allowed: {_tool_name}")
+        logger.info(f"allowed tools: {_tool_name}")
         messages = _trim_state_messages(state["messages"])
+        logger.info(f"trimed messsages!!! {messages}")
         response = model.bind_tools(allowed).invoke(
             [SystemMessage(content=system)]
             + list(messages)
@@ -279,6 +286,15 @@ def _build_graph(
         state["step_context"].budget.spent_steps += 1
         state["step_context"].budget.remaining_steps -= 1
         logger.info(f"response {response}")
+        if response.content == "" and not response.tool_calls:
+            in_token_cnt, out_token_cnt, total_token = -1, -1, -1
+            if response.usage_metadata:
+                in_token_cnt = response.usage_metadata["input_tokens"]
+                out_token_cnt = response.usage_metadata["output_tokens"]
+                total_token = response.usage_metadata["total_tokens"]
+            logger.error(
+                f"may be token over... in: {in_token_cnt}, out: {out_token_cnt}, total: {total_token}"
+            )
         return {
             "messages": [response],
             "step_context": state["step_context"],
@@ -379,10 +395,25 @@ def _filter_tools(tools: Sequence[BaseTool], tool_set: Set[str]) -> List[BaseToo
     return [tool for tool in tools if tool.name in tool_set]
 
 
+def keep_last_n_user_turns(
+    messages: List[BaseMessage], n_turns: int
+) -> List[BaseMessage]:
+    count = 0
+    start_idx = 0
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            count += 1
+            if count >= n_turns:
+                start_idx = i
+                break
+    return messages[start_idx:] if count >= n_turns else messages
+
+
 def _trim_state_messages(messages: Sequence[BaseMessage]) -> Sequence[BaseMessage]:
+    trimed = keep_last_n_user_turns(messages, 2)
     return trim_messages(
-        list(messages),
-        max_tokens=2000,
+        trimed,
+        max_tokens=3000,
         strategy="last",
         token_counter=_token_counter,
     )
@@ -431,9 +462,10 @@ def _build_memory_context(
     memory_kernel = state_api.memory_kernel(conversation_id)
     if memory_kernel is None:
         return ""
-    profile_text = memory_kernel.get_profile_context(limit=3)
-    semantic_text = memory_kernel.get_semantic_context(query, limit=3)
-    episodic_text = memory_kernel.get_episodic_context(query, limit=3)
+    profile_text = memory_kernel.get_profile_context(limit=1)
+    semantic_text = memory_kernel.get_semantic_context(query, limit=1)
+    episodic_text = memory_kernel.get_episodic_context(query, limit=1)
+
     return "\n".join(
         part for part in (profile_text, semantic_text, episodic_text) if part
     )

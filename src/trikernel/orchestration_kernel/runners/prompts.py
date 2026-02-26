@@ -91,20 +91,20 @@ def build_tool_loop_prompt_simple(
     system = (
         "あなたはメインエージェントです。\n"
         "ユーザー入力(user_input)をタスクとして、タスクを完了するために適切にツールを選択してください\n"
-        "ツールを選択しない場合、これまでに得られたツールの結果を、ユーザーへの応答に必要な情報としてまとめてください。\n\n"
         f"現在時刻: {now_iso()}\n\n"
         "## 出力のルール\n"
         "内部用語をそのまま出力しないでください。\n\n"
         "## ツール利用のルール\n"
+        "タスクが完了したと判断できるまでは必ずツールを選択すること。\n"
         "不明点があればツールを利用せずユーザーに詳細を確認すること。 \n"
-        "ツール呼び出しは必ず payload フィールドを使い、payload 内に必要な引数を入れてください。\n"
+        "ツールを選択しない場合、これまでに得られたツールの結果をユーザーへの応答に必要な情報としてまとめてください。\n"
         f"Toolを使用して、ワークスペースとして以下のディレクトリ[{work_space_dir}]とファイルにアクセスできます。\n"
         "複雑な調査や長い処理(例: deep_researchや、5分後のタスク実行、2時間ごとのタスク繰り返し)が必要な場合、task.create_workでタスクを作成し、ワーカーにタスクを依頼できます。\n"
         "ワーカーにタスクを依頼する場合、ワーカーで行うタスクのgoalを明確にし、どのような成果物を作成すべきかを具体的に指定すること。\n"
         "他のワーカーの状況は、task.listで取得可能です\n"
         "過去の出力が必要な場合は、artifact.search で ID を検索し、artifact.read で読み込んでください。\n\n"
     )
-    prompt = f"User input: {user_message}\n{memory_block}\nStep context: {step_context_text}\n"
+    prompt = f"{memory_block}\n\nStep context: {step_context_text}\n\nUser input: {user_message}"
     return system, prompt
 
 
@@ -132,7 +132,7 @@ def build_tool_loop_prompt_simple_for_notification(
         f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
     )
     prompt = (
-        f"Worker input: {message}\n{memory_block}Step context: {step_context_text}\n"
+        f"{memory_block}\n\nStep context: {step_context_text}\nWorker input: {message}"
     )
     return system, prompt
 
@@ -161,7 +161,7 @@ def build_tool_loop_prompt_simple_for_worker(
     memory_block = (
         f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
     )
-    prompt = f"input: {message}\n{memory_block}Step context: {step_context_text}\n"
+    prompt = f"{memory_block}\n\nStep context: {step_context_text}\n\ninput: {message}"
     return system, prompt
 
 
@@ -311,7 +311,7 @@ def build_discover_tools_simple_prompt(
         "- 出力形式: 検索精度を高めるため、複数のキーワードをスペース区切りで出力、または独立した複数のクエリを出力してください。\n\n"
         "# Output Rule\n"
         "textとしてqueryのみを出力すること\n"
-        "英語もしくは日本で出力を行うこと\n"
+        "英語のqueryとすること\n"
         "装飾や構造などは出力してはいけません"
     )
 
@@ -319,10 +319,9 @@ def build_discover_tools_simple_prompt(
         f"Memory context:\n{memory_context_text}\n\n" if memory_context_text else ""
     )
     prompt = (
-        "# Input Data\n"
-        f"User Input: {user_input}\n\n"
-        f"{memory_block}"
+        f"{memory_block}\n\n"
         f"Step context: \n{step_context_text}\n\n"
         f"Available Tool Overview: {tools_text}\n\n"
+        f"User Input: {user_input}"
     )
     return system, prompt
