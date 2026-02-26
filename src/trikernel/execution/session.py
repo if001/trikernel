@@ -114,6 +114,8 @@ class TrikernelSession:
         self._finalize_task(task, result)
         if result.task_state == "done" and self._enable_memory_updates:
             self._enqueue_memory_update(message, assistant_message)
+        if result.task_state != "done":
+            assistant_message = _user_facing_error_message()
         return MessageResult(
             message=assistant_message,
             task_state=result.task_state,
@@ -285,3 +287,7 @@ def _validate_run_at(run_at: str) -> None:
         raise ValueError("run_at must be in the future")
     if parsed > now + timedelta(days=365):
         raise ValueError("run_at must be within 1 year")
+
+
+def _user_facing_error_message() -> str:
+    return "内部エラーにより応答できませんでした。"
