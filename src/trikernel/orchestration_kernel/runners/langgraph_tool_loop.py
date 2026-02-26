@@ -231,14 +231,10 @@ def _build_graph(
             + list(messages)
             + [HumanMessage(content=prompt)]
         )
-        _in = (
-            [SystemMessage(content=system)]
-            + list(messages)
-            + [HumanMessage(content=prompt)]
-        )
-        logger.info(f"debug: {_in}")
         query = response.content or ""
+        logger.info(f"debug: tool select query: {query}")
         selected = set(runner_context.tool_api.tool_search(str(query)))
+        return {"tool_set": selected}
 
     def agent(state):
         if state["step_context"].budget.remaining_steps <= 0:
@@ -272,7 +268,7 @@ def _build_graph(
             )
 
         allowed = _filter_tools(tools, state["tool_set"])
-        _tool_name = ",".join([v.name for v in allowed])
+        _tool_name = [v.name for v in allowed]
         logger.info(f"allowed: {_tool_name}")
         messages = _trim_state_messages(state["messages"])
         response = model.bind_tools(allowed).invoke(
@@ -282,6 +278,7 @@ def _build_graph(
         )
         state["step_context"].budget.spent_steps += 1
         state["step_context"].budget.remaining_steps -= 1
+        logger.info(f"response {response}")
         return {
             "messages": [response],
             "step_context": state["step_context"],
@@ -333,13 +330,14 @@ def _build_graph(
             return "followup"
         return "tools"
 
+    graph.set_entry_point("discover")
+    graph.add_edge("discover", "agent")
     graph.add_conditional_edges(
         "agent", route, {"tools": "tools", "followup": "followup", END: END}
     )
     graph.add_edge("tools", "discover")
-    graph.add_edge("discover", "agent")
     graph.add_edge("followup", END)
-    graph.set_entry_point("discover")
+
     if store is None:
         return graph.compile(checkpointer=runner_context.message_store.checkpointer)
     return graph.compile(
@@ -377,7 +375,7 @@ def _token_counter(messages: Sequence[BaseMessage]) -> int:
 
 def _filter_tools(tools: Sequence[BaseTool], tool_set: Set[str]) -> List[BaseTool]:
     if not tool_set:
-        return list(tools)
+        return []
     return [tool for tool in tools if tool.name in tool_set]
 
 
