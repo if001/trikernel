@@ -4,6 +4,8 @@ import json
 import os
 from typing import Any, Dict, List
 
+from trikernel.orchestration_kernel.models import SimpleStepContext
+
 
 def build_plan_step_prompt(
     task_payload: Dict[str, Any],
@@ -100,9 +102,7 @@ def build_tool_loop_prompt_simple(
         "他のワーカーの状況は、task.listで取得可能です\n"
         "過去の出力が必要な場合は、artifact.search で ID を検索し、artifact.read で読み込んでください。\n\n"
     )
-    prompt = (
-        f"User input: {user_message}\n{memory_block}Step context: {step_context_text}\n"
-    )
+    prompt = f"User input: {user_message}\n{memory_block}\nStep context: {step_context_text}\n"
     return system, prompt
 
 
@@ -200,11 +200,8 @@ def build_tool_loop_followup_prompt_for_notification(
     message: str,
     step_context_text: str,
     memory_context_text: str = "",
-) -> str:
-    memory_block = (
-        f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
-    )
-    prompt = (
+) -> tuple[str, str]:
+    system = (
         "あなたは通知者です。\n"
         "ワーカーからの成果物が与えられます。成果物とこれまでのツール実行結果に基づき、ユーザーの質問に対する最終的な回答を作成してください。\n\n"
         "## 回答のガイドライン\n"
@@ -216,18 +213,21 @@ def build_tool_loop_followup_prompt_for_notification(
         "- [重要] 人格/性格を必ず守り出力を作成してください。\n\n"
         "### 人格/性格\n"
         f"{PERSONA}\n\n"
-        f"Worker input: {message}\n"
-        f"{memory_block}"
-        f"Step context: {step_context_text}\n"
     )
-    return prompt
+    memory_block = (
+        f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
+    )
+    prompt = (
+        f"Worker input: {message}\n{memory_block}Step context: {step_context_text}\n"
+    )
+    return system, prompt
 
 
 def build_tool_loop_followup_prompt_for_worker(
     message: str,
     step_context_text: str,
-) -> str:
-    prompt = (
+) -> tuple[str, str]:
+    system = (
         "あたなはワーカーエージェントです。\n"
         "メインエージェントから定期実行するタスクや時間のかかるタスクの実行を命じられツールを用いて調査を行いました。\n"
         "調査結果をまとめて、タスクの最終成果物を出力してください。\n\n"
@@ -238,10 +238,9 @@ def build_tool_loop_followup_prompt_for_worker(
         "- 不確実性や不明点について: ツールを使っても不明な点があれば、正直に出力すること。\n"
         "- 日本語で自然な文体で回答すること\n"
         "- 出力はユーザーへの返答テキストのみとすること。JSONや内部状態の列挙は禁止。\n\n"
-        f"tool results: {message}\n"
-        f"Step context: {step_context_text}\n"
     )
-    return prompt
+    prompt = f"tool results: {message}\nStep context: {step_context_text}\n"
+    return system, prompt
 
 
 def build_check_step_prompt(

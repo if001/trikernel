@@ -22,6 +22,9 @@ from ..models import Budget, RunResult, RunnerContext, SimpleStepContext
 from ..payloads import extract_llm_input
 from .prompts import (
     build_discover_tools_simple_prompt,
+    build_tool_loop_followup_prompt,
+    build_tool_loop_followup_prompt_for_notification,
+    build_tool_loop_followup_prompt_for_worker,
     build_tool_loop_prompt_simple,
     build_tool_loop_prompt_simple_for_notification,
     build_tool_loop_prompt_simple_for_worker,
@@ -60,7 +63,6 @@ class LangGraphToolLoopRunner:
                 tools,
                 user_message,
                 tools_text,
-                step_context,
                 task.task_type,
                 runner_context,
                 runner_context.store,
@@ -186,7 +188,6 @@ def _initial_step_context(task: Task) -> SimpleStepContext:
     return SimpleStepContext(
         role=role,
         task_type=task.task_type,
-        tool_summary="",
         budget=budget,
     )
 
@@ -205,7 +206,6 @@ def _build_graph(
     tools: Sequence[BaseTool],
     user_message: str,
     tools_text: str,
-    step_context: SimpleStepContext,
     task_type: str,
     runner_context: RunnerContext,
     store,
@@ -239,8 +239,6 @@ def _build_graph(
         logger.info(f"debug: {_in}")
         query = response.content or ""
         selected = set(runner_context.tool_api.tool_search(str(query)))
-        logger.info(f"tool_set: {selected}")
-        return {"tool_set": selected}
 
     def agent(state):
         if state["step_context"].budget.remaining_steps <= 0:
@@ -274,7 +272,8 @@ def _build_graph(
             )
 
         allowed = _filter_tools(tools, state["tool_set"])
-        logger.info(f"allowed: {allowed}")
+        _tool_name = ",".join([v.name for v in allowed])
+        logger.info(f"allowed: {_tool_name}")
         messages = _trim_state_messages(state["messages"])
         response = model.bind_tools(allowed).invoke(
             [SystemMessage(content=system)]
@@ -290,18 +289,56 @@ def _build_graph(
 
     tool_node = ToolNode(list(tools), handle_tool_errors=_handle_tool_error)
 
+    def followup(state: ToolLoopState):
+        memory_context_text = _build_memory_context(
+            runner_context.state_api,
+            runner_context.conversation_id,
+            user_message,
+        )
+        messages = _trim_state_messages(state["messages"])
+        if task_type == "user_request":
+            system, prompt = build_tool_loop_followup_prompt(
+                user_message=user_message,
+                step_context_text=state["step_context"].to_str(),
+                memory_context_text=memory_context_text,
+            )
+        elif task_type == "notification":
+            system, prompt = build_tool_loop_followup_prompt_for_notification(
+                message=user_message,
+                step_context_text=state["step_context"].to_str(),
+                memory_context_text=memory_context_text,
+            )
+        else:
+            system, prompt = build_tool_loop_followup_prompt_for_worker(
+                message=user_message,
+                step_context_text=state["step_context"].to_str(),
+            )
+        response = model.invoke(
+            [SystemMessage(content=system)]
+            + list(messages)
+            + [HumanMessage(content=prompt)]
+        )
+        return {"messages": [response]}
+
     graph.add_node("discover", discover)
     graph.add_node("agent", agent)
     graph.add_node("tools", tool_node)
+    graph.add_node("followup", followup)
 
     def route(state: ToolLoopState):
         if state.get("stop"):
             return END
-        return tools_condition(cast(dict[str, Any], state))
+        decision = tools_condition(cast(dict[str, Any], state))
+        if decision == END:
+            return "followup"
+        return "tools"
 
-    graph.add_conditional_edges("agent", route, {"tools": "tools", END: END})
+    graph.add_conditional_edges(
+        "agent", route, {"tools": "tools", "followup": "followup", END: END}
+    )
     graph.add_edge("tools", "discover")
     graph.add_edge("discover", "agent")
+    graph.add_edge("followup", END)
     graph.set_entry_point("discover")
     if store is None:
         return graph.compile(checkpointer=runner_context.message_store.checkpointer)

@@ -55,7 +55,9 @@ async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
                 for notice in notices:
                     text = notice.get("message") if isinstance(notice, dict) else notice
                     meta = notice.get("meta") if isinstance(notice, dict) else {}
-                    channel_id = meta.get("channel_id") if isinstance(meta, dict) else None
+                    channel_id = (
+                        meta.get("channel_id") if isinstance(meta, dict) else None
+                    )
                     await ui.write_output(
                         text or "", channel_id=channel_id or DISCORD_CHANNEL_ID
                     )
@@ -87,7 +89,9 @@ async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
                     )
                     continue
                 async with ui.typing():
-                    result = await asyncio.to_thread(session.send_message, user_input, False)
+                    result = await asyncio.to_thread(
+                        session.send_message, user_input, False
+                    )
                 if result.stream_chunks:
                     logger.error("not support")
                 else:

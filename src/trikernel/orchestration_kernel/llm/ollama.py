@@ -46,7 +46,9 @@ class OllamaLLM:
     def stream_chunks(self, task: Task, tools: List[BaseTool]) -> Iterable[str]:
         return self._chat_stream(task, tools)
 
-    def collect_stream(self, task: Task, tools: List[BaseTool]) -> Tuple[LLMResponse, List[str]]:
+    def collect_stream(
+        self, task: Task, tools: List[BaseTool]
+    ) -> Tuple[LLMResponse, List[str]]:
         chunks: List[str] = []
         for chunk in self.stream_chunks(task, tools):
             chunks.append(chunk)
