@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Annotated, List, Optional, Sequence, Set, TypedDict, cast, Any
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, trim_messages
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    trim_messages,
+)
 from langchain_core.tools import BaseTool
 from langchain_ollama import ChatOllama
 from langgraph.errors import GraphRecursionError
@@ -213,13 +219,24 @@ def _build_graph(
             runner_context.conversation_id,
             user_message,
         )
-        prompt = build_discover_tools_simple_prompt(
+        system, prompt = build_discover_tools_simple_prompt(
             user_input=user_message,
             tools_text=tools_text,
             step_context_text=state["step_context"].to_str(),
             memory_context_text=memory_context_text,
         )
-        response = model.invoke(list(messages) + [HumanMessage(content=prompt)])
+
+        response = model.invoke(
+            [SystemMessage(content=system)]
+            + list(messages)
+            + [HumanMessage(content=prompt)]
+        )
+        _in = (
+            [SystemMessage(content=system)]
+            + list(messages)
+            + [HumanMessage(content=prompt)]
+        )
+        logger.info(f"debug: {_in}")
         query = response.content or ""
         selected = set(runner_context.tool_api.tool_search(str(query)))
         logger.info(f"tool_set: {selected}")
@@ -238,19 +255,19 @@ def _build_graph(
             user_message,
         )
         if task_type == "user_request":
-            prompt = build_tool_loop_prompt_simple(
+            system, prompt = build_tool_loop_prompt_simple(
                 user_message=user_message,
                 step_context_text=state["step_context"].to_str(),
                 memory_context_text=memory_context_text,
             )
         elif task_type == "notification":
-            prompt = build_tool_loop_prompt_simple_for_notification(
+            system, prompt = build_tool_loop_prompt_simple_for_notification(
                 message=user_message,
                 step_context_text=state["step_context"].to_str(),
                 memory_context_text=memory_context_text,
             )
         else:
-            prompt = build_tool_loop_prompt_simple_for_worker(
+            system, prompt = build_tool_loop_prompt_simple_for_worker(
                 message=user_message,
                 step_context_text=state["step_context"].to_str(),
                 memory_context_text=memory_context_text,
@@ -260,7 +277,9 @@ def _build_graph(
         logger.info(f"allowed: {allowed}")
         messages = _trim_state_messages(state["messages"])
         response = model.bind_tools(allowed).invoke(
-            list(messages) + [HumanMessage(content=prompt)]
+            [SystemMessage(content=system)]
+            + list(messages)
+            + [HumanMessage(content=prompt)]
         )
         state["step_context"].budget.spent_steps += 1
         state["step_context"].budget.remaining_steps -= 1
@@ -353,9 +372,7 @@ def _message_content_text(message: AIMessage) -> str:
     return str(content)
 
 
-def _load_checkpoint_messages(
-    checkpointer, config: dict
-) -> Sequence[BaseMessage]:
+def _load_checkpoint_messages(checkpointer, config: dict) -> Sequence[BaseMessage]:
     try:
         checkpoint_tuple = checkpointer.get_tuple(config)
     except Exception:

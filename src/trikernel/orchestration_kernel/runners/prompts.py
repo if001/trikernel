@@ -81,9 +81,11 @@ def build_tool_loop_prompt_simple(
     user_message: str,
     step_context_text: str,
     memory_context_text: str = "",
-) -> str:
-    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
-    prompt = (
+) -> tuple[str, str]:
+    memory_block = (
+        f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
+    )
+    system = (
         "あなたはメインエージェントです。\n"
         "ユーザー入力(user_input)をタスクとして、タスクを完了するために適切にツールを選択してください\n"
         "ツールを選択しない場合、これまでに得られたツールの結果を、ユーザーへの応答に必要な情報としてまとめてください。\n"
@@ -97,20 +99,19 @@ def build_tool_loop_prompt_simple(
         "ワーカーにタスクを依頼する場合、ワーカーで行うタスクのgoalを明確にし、どのような成果物を作成すべきかを具体的に指定すること。\n"
         "他のワーカーの状況は、task.listで取得可能です\n"
         "過去の出力が必要な場合は、artifact.search で ID を検索し、artifact.read で読み込んでください。\n\n"
-        f"User input: {user_message}\n"
-        f"{memory_block}"
-        f"Step context: {step_context_text}\n"
     )
-    return prompt
+    prompt = (
+        f"User input: {user_message}\n{memory_block}Step context: {step_context_text}\n"
+    )
+    return system, prompt
 
 
 def build_tool_loop_prompt_simple_for_notification(
     message: str,
     step_context_text: str,
     memory_context_text: str = "",
-) -> str:
-    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
-    prompt = (
+) -> tuple[str, str]:
+    system = (
         "あなたは通知者です。\n"
         "ワーカーからの成果物が与えられます。ユーザーへの応答を生成してください。"
         "ツールを選択しない場合、これまでに得られたツールの結果を、ユーザーへの応答に必要な情報としてまとめてください。\n"
@@ -122,20 +123,23 @@ def build_tool_loop_prompt_simple_for_notification(
         "ツール呼び出しは必ず payload フィールドを使い、payload 内に必要な引数を入れてください。\n"
         "task.create_notificationを使ってはいけません。\n"
         "成果物を更に調査する必要はありません\n\n"
-        f"Worker input: {message}\n"
-        f"{memory_block}"
-        f"Step context: {step_context_text}\n"
     )
-    return prompt
+
+    memory_block = (
+        f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
+    )
+    prompt = (
+        f"Worker input: {message}\n{memory_block}Step context: {step_context_text}\n"
+    )
+    return system, prompt
 
 
 def build_tool_loop_prompt_simple_for_worker(
     message: str,
     step_context_text: str,
     memory_context_text: str = "",
-) -> str:
-    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
-    prompt = (
+) -> tuple[str, str]:
+    system = (
         "あたなはワーカーエージェントです。\n"
         "メインエージェントから定期実行するタスクや時間のかかるタスクの実行を命じられます。\n"
         "タスクを完了するために適切にツールを選択してください\n"
@@ -148,11 +152,13 @@ def build_tool_loop_prompt_simple_for_worker(
         "他のワーカーの状況は、task.listで取得可能です\n"
         "さらにタスクを分割する必要があれば、task.create_workでタスクを作成し、ワーカーにタスクを依頼できます。\n"
         "過去の出力が必要な場合は、artifact.search で ID を検索し、artifact.read で読み込んでください。\n\n"
-        f"input: {message}\n"
-        f"{memory_block}"
-        f"Step context: {step_context_text}\n"
     )
-    return prompt
+
+    memory_block = (
+        f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
+    )
+    prompt = f"input: {message}\n{memory_block}Step context: {step_context_text}\n"
+    return system, prompt
 
 
 PERSONA = """- 一人称: 僕
@@ -166,9 +172,11 @@ def build_tool_loop_followup_prompt(
     user_message: str,
     step_context_text: str,
     memory_context_text: str = "",
-) -> str:
-    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
-    prompt = (
+) -> tuple[str, str]:
+    memory_block = (
+        f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
+    )
+    system = (
         "あなたは誠実で専門的なアシスタントです。\n"
         "これまでのツール実行結果に基づき、ユーザーの質問に対する最終的な回答を作成してください。\n\n"
         "## 回答のガイドライン\n"
@@ -181,11 +189,11 @@ def build_tool_loop_followup_prompt(
         "- [重要] 人格/性格を必ず守り出力を作成してください。\n\n"
         "### 人格/性格\n"
         f"{PERSONA}\n\n"
-        f"User input: {user_message}\n"
-        f"{memory_block}"
-        f"Step context: {step_context_text}\n"
     )
-    return prompt
+    prompt = (
+        f"User input: {user_message}\n{memory_block}Step context: {step_context_text}\n"
+    )
+    return system, prompt
 
 
 def build_tool_loop_followup_prompt_for_notification(
@@ -193,7 +201,9 @@ def build_tool_loop_followup_prompt_for_notification(
     step_context_text: str,
     memory_context_text: str = "",
 ) -> str:
-    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
+    memory_block = (
+        f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
+    )
     prompt = (
         "あなたは通知者です。\n"
         "ワーカーからの成果物が与えられます。成果物とこれまでのツール実行結果に基づき、ユーザーの質問に対する最終的な回答を作成してください。\n\n"
@@ -278,25 +288,30 @@ def build_discover_tools_simple_prompt(
     tools_text: str,
     step_context_text: str,
     memory_context_text: str = "",
-) -> str:
-    memory_block = f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
-    return (
-        "# Role\n"
+) -> tuple[str, str]:
+    system = (
         "あなたは、ユーザーの入力を分析し、膨大なツールセットの中から最適なツールを検索するための「検索クエリ」を作成するエキスパートです。\n\n"
         "# Task\n"
         "与えられた「ユーザーの入力」「会話履歴」「ツールのリスト（名前と概要）」を元に、ベクトル検索に最も適した検索クエリを生成してください。\n\n"
         "# Guidelines\n"
         "- 意味的拡張: ユーザーの曖昧な表現を、ツールの説明文（Description）に使われそうな技術的なキーワードや機能名に変換してください。\n"
-        " - 例: 「グラフにして」→「データ可視化、チャート生成、折れ線グラフ、プロット」\n"
+        "  例: 「グラフにして」→「データ可視化、チャート生成、折れ線グラフ、プロット」\n"
         "- 文脈の凝縮: 直近の履歴から、現在の要求が「何に対して」行われているのか（対象物）を特定し、クエリに含めてください。\n"
         "- ノイズの除去: 「お願いします」「〜をやって」などの挨拶や指示語を除去し、機能的なキーワードに集中してください。\n"
         "- 出力形式: 検索精度を高めるため、複数のキーワードをスペース区切りで出力、または独立した複数のクエリを出力してください。\n\n"
         "# Output Rule\n"
         "textとしてqueryのみを出力すること\n"
-        "装飾や構造などは出力してはいけません\n\n"
-        "# Input Data\n"
-        f"User Input: {user_input}\n"
-        f"{memory_block}"
-        f"Step context: \n{step_context_text}\n"
-        f"Available Tool Overview: {tools_text}\n"
+        "装飾や構造などは出力してはいけません"
     )
+
+    memory_block = (
+        f"Memory context:\n{memory_context_text}\n\n" if memory_context_text else ""
+    )
+    prompt = (
+        "# Input Data\n"
+        f"User Input: {user_input}\n\n"
+        f"{memory_block}"
+        f"Step context: \n{step_context_text}\n\n"
+        f"Available Tool Overview: {tools_text}\n\n"
+    )
+    return system, prompt
