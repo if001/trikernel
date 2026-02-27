@@ -75,7 +75,14 @@ class Artifact:
     metadata: Dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=utc_now)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_small_dict(self) -> Dict[str, Any]:
+        return {
+            "artifact_id": self.artifact_id,
+            "metadata": self.metadata,
+            "created_at": self.created_at,
+        }
+
+    def to_full_dict(self) -> Dict[str, Any]:
         return {
             "artifact_id": self.artifact_id,
             "media_type": self.media_type,

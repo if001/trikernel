@@ -207,7 +207,7 @@ class JsonFileArtifactStore:
     def _write_file(self, artifact: Artifact) -> None:
         path = self._artifact_path(artifact.artifact_id)
         path.write_text(
-            json.dumps(artifact.to_dict(), ensure_ascii=False, indent=2),
+            json.dumps(artifact.to_full_dict(), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 

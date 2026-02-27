@@ -68,9 +68,7 @@ class PolishArgs(BaseModel):
 class GenerateArgs(BaseModel):
     article_type: str = Field(..., description="Article type.")
     audience: str = Field(..., description="Target audience.")
-    revisions: Optional[List[str]] = Field(
-        default=None, description="Revision points."
-    )
+    revisions: Optional[List[str]] = Field(default=None, description="Revision points.")
     outline: Optional[str] = Field(default=None, description="Outline content.")
     draft: str = Field(..., description="Draft content.")
     language: Optional[str] = Field(default="Japanese", description="Output language.")
@@ -159,27 +157,39 @@ def build_writing_tools() -> List[BaseTool]:
         StructuredTool.from_function(
             summarize_text,
             name="text.summarize",
-            description="Summarize a given text.",
+            description=(
+                "Summarize long text into a shorter form with optional max length/style/language."
+                "Use to compress tool results before adding them to prompts/artifacts."
+            ),
         ),
         StructuredTool.from_function(
             extract_corresponding,
             name="text.extract",
-            description="Extract information from text based on criteria.",
+            description=(
+                "Extract specific information from target_text, guided by source_text and optional criteria."
+                "Use when you have a reference schema/template and want structured selection."
+            ),
         ),
         StructuredTool.from_function(
             create_outline,
             name="article.outline",
-            description="Create an outline for an article.",
+            description=(
+                "Create an article outline from user intent and tool result summaries."
+                "Use when the user asks for a written deliverable (blog, doc, report)."
+            ),
         ),
         StructuredTool.from_function(
             polish_article,
             name="article.polish",
-            description="Polish an article draft.",
+            description="Improve clarity/structure/tone of an article draft for a target audience.",
         ),
         StructuredTool.from_function(
             generate_article,
             name="article.generate",
-            description="Generate an article from an outline or draft.",
+            description=(
+                "Generate a full article from an outline and/or draft + revision points."
+                "Use for final deliverable generation, not for internal reasoning."
+            ),
         ),
     ]
 

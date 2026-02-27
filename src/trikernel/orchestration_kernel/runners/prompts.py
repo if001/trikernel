@@ -61,13 +61,11 @@ def build_do_followup_prompt(
     )
 
 
-work_space_dir = os.environ.get("work_space_dir")
-
-
 def build_tool_loop_prompt(
     user_message: str,
     step_context: Dict[str, Any],
 ) -> str:
+    work_space_dir = os.environ.get("work_space_dir")
     prompt = (
         "You are completing a task step using tools when needed.\n"
         "Responses to users must be in Japanese. Do not output internal terminology as-is.\n"
@@ -85,6 +83,7 @@ def build_tool_loop_prompt_simple(
     step_context_text: str,
     memory_context_text: str = "",
 ) -> tuple[str, str]:
+    work_space_dir = os.environ.get("work_space_dir")
     memory_block = (
         f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
     )
@@ -142,6 +141,7 @@ def build_tool_loop_prompt_simple_for_worker(
     step_context_text: str,
     memory_context_text: str = "",
 ) -> tuple[str, str]:
+    work_space_dir = os.environ.get("work_space_dir")
     system = (
         "あたなはワーカーエージェントです。\n"
         "メインエージェントから定期実行するタスクや時間のかかるタスクの実行を命じられます。\n"

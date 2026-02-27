@@ -89,6 +89,9 @@ def build_system_tools() -> list[BaseTool]:
         StructuredTool.from_function(
             step_goal,
             name="step.goal",
-            description="Generate or refine the next step goal.",
+            description=(
+                "Propose/refine the next step goal given the current context (including failure reason)."
+                "Use at the start of each tool-execution loop iteration to keep actions aligned with the user’s intent."
+            ),
         )
     ]

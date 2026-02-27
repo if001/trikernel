@@ -155,36 +155,36 @@ def build_file_tools() -> List[BaseTool]:
         StructuredTool.from_function(
             tree,
             name="fs.tree",
-            description="List files and directories under a path.",
+            description="List directory structure under a path up to max_depth. Use to understand project layout before reading files.",
         ),
         StructuredTool.from_function(
             stat,
             name="fs.stat",
-            description="Get file or directory metadata.",
+            description="Get file/directory metadata (size, timestamps). Use to decide whether/what to read.",
         ),
         StructuredTool.from_function(
             find,
             name="fs.find",
-            description="Find files or directories by glob pattern.",
+            description="Find paths by glob pattern under a root path (e.g., **/*.py). Use for targeted discovery.",
         ),
         StructuredTool.from_function(
             rg,
             name="fs.rg",
-            description="Search file contents with a regex.",
+            description="Search file contents using regex (ripgrep). Use to locate definitions/usages quickly; keep patterns specific.",
         ),
         StructuredTool.from_function(
             head,
             name="fs.head",
-            description="Read the first N lines of a file.",
+            description="Read first N lines for quick inspection (logs, configs) without loading whole file.",
         ),
         StructuredTool.from_function(
             tail,
             name="fs.tail",
-            description="Read the last N lines of a file.",
+            description="Read last N lines for quick inspection (logs, configs) without loading whole file.",
         ),
         StructuredTool.from_function(
             read_file,
             name="fs.read_file",
-            description="Read a file's content.",
+            description="Read full file content. Use only after locating the exact file; avoid huge files.",
         ),
     ]

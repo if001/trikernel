@@ -81,6 +81,14 @@ class ToolKernel:
         doc = Document(page_content=description, metadata=metadata)
         self._search_index.upsert_document(doc, tool.name, force=force)
 
+    def debug(self):
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+
+        for v in self.tool_list():
+            print(v.name)
+            print(convert_to_openai_tool(v))
+            print("-" * 10)
+
 
 def _init_tool_search(data_dir: Path) -> HybridSearchIndex:
     load_env()

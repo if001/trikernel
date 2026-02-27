@@ -8,10 +8,12 @@ from langgraph.prebuilt import InjectedState
 from pydantic import BaseModel, Field
 from typing_extensions import Annotated
 
+from trikernel.state_kernel.protocols import StateKernelAPI
+
 from ..runtime import get_llm_api, get_state_api
 
 
-def _require_state_api(state: dict) -> Any:
+def _require_state_api(state: dict) -> StateKernelAPI:
     state_api = state.get("state_api") if isinstance(state, dict) else None
     if state_api is None and isinstance(state, dict):
         runtime_id = state.get("runtime_id")
@@ -27,7 +29,9 @@ class UserRequestPayload(BaseModel):
 
 
 class WorkPayload(BaseModel):
-    message: str = Field(..., description="Work instruction message for the worker.")
+    message: str = Field(
+        ..., description="Work instruction message(with details) for the worker."
+    )
     run_at: Optional[str] = Field(
         default=None, description="ISO8601 timestamp for scheduling."
     )
@@ -40,7 +44,9 @@ class WorkPayload(BaseModel):
 
 
 class WorkRepeatPayload(BaseModel):
-    message: str = Field(..., description="Work instruction message for the worker.")
+    message: str = Field(
+        ..., description="Work instruction message(with details) for the worker."
+    )
     repeat_interval_seconds: int = Field(
         ..., description="Repeat interval in seconds (>= 3600)."
     )
@@ -50,7 +56,9 @@ class WorkRepeatPayload(BaseModel):
 
 
 class WorkAtPayload(BaseModel):
-    message: str = Field(..., description="Work instruction message for the worker.")
+    message: str = Field(
+        ..., description="Work instruction message(with details) for the worker."
+    )
     run_at: str = Field(..., description="ISO8601 timestamp for scheduling.")
 
 
@@ -204,7 +212,9 @@ def task_list(
     state: Annotated[dict, InjectedState],
 ) -> List[Dict[str, Any]]:
     state_api = _require_state_api(state)
-    return [task.to_dict() for task in state_api.task_list(payload.task_type, payload.state)]
+    return [
+        task.to_dict() for task in state_api.task_list(payload.task_type, payload.state)
+    ]
 
 
 def task_claim(
@@ -212,7 +222,9 @@ def task_claim(
     state: Annotated[dict, InjectedState],
 ) -> Optional[str]:
     state_api = _require_state_api(state)
-    return state_api.task_claim(payload.filter_by, payload.claimer_id, payload.ttl_seconds)
+    return state_api.task_claim(
+        payload.filter_by, payload.claimer_id, payload.ttl_seconds
+    )
 
 
 def task_complete(
@@ -250,7 +262,7 @@ def artifact_read(
 ) -> Optional[Dict[str, Any]]:
     state_api = _require_state_api(state)
     artifact = state_api.artifact_read(payload.artifact_id)
-    return artifact.to_dict() if artifact else None
+    return artifact.to_full_dict() if artifact else None
 
 
 def artifact_extract(
@@ -280,7 +292,10 @@ def artifact_search(
     state: Annotated[dict, InjectedState],
 ) -> List[Dict[str, Any]]:
     state_api = _require_state_api(state)
-    return [artifact.to_dict() for artifact in state_api.artifact_search(payload.query)]
+    return [
+        artifact.to_small_dict()
+        for artifact in state_api.artifact_search(payload.query)
+    ]
 
 
 def artifact_list(
@@ -305,85 +320,111 @@ def artifact_list(
 
 def build_state_tools() -> List[BaseTool]:
     return [
-        StructuredTool.from_function(
-            task_create_user_request,
-            name="task.create_user_request",
-            description="Create a user_request task.",
-        ),
+        # StructuredTool.from_function(
+        #     task_create_user_request,
+        #     name="task.create_user_request",
+        #     description="Create a user_request task.",
+        # ),
         StructuredTool.from_function(
             task_create_work,
             name="task.create_work",
-            description="Create a work task.",
+            description=(
+                "Start a worker deep-work job for investigations that may exceed the main agent’s per-step tool-call budget."
+                "Use when the main loop needs to offload long-running research / multi-hop browsing / heavy extraction beyond allowed tool iterations."
+                "Not for scheduling; for time-based or periodic runs use task.create_work_at / task.create_work_repeat."
+                "The worker runtime will always emit a notification at the end (not via this tool call)."
+            ),
         ),
         StructuredTool.from_function(
             task_create_work_at,
             name="task.create_work_at",
-            description="Create a scheduled work task.",
+            description=(
+                "Schedule a worker job at a specific run_at (ISO8601)."
+                "Use for reminders, delayed checks, or actions that must happen at a certain time."
+                "Not for deep-work offloading; use task.create_work if the goal is to exceed main-loop tool budget."
+            ),
         ),
         StructuredTool.from_function(
             task_create_work_repeat,
             name="task.create_work_repeat",
-            description="Create a repeating work task.",
+            description=(
+                "Schedule a repeating worker job at a fixed interval (repeat_interval_seconds >= 3600)."
+                "Use for periodic monitoring/digests/maintenance."
+                "Each run will end with a notification emitted by the worker runtime."
+            ),
         ),
-        StructuredTool.from_function(
-            task_create_notification,
-            name="task.create_notification",
-            description="Create a notification task.",
-        ),
-        StructuredTool.from_function(
-            task_update,
-            name="task.update",
-            description="Update a task with a patch payload.",
-        ),
+        # StructuredTool.from_function(
+        #     task_create_notification,
+        #     name="task.create_notification",
+        #     description="Create a notification task.",
+        # ),
+        # StructuredTool.from_function(
+        #     task_update,
+        #     name="task.update",
+        #     description="Update a task with a patch payload.",
+        # ),
         StructuredTool.from_function(
             task_get,
             name="task.get",
-            description="Get a task by id.",
+            description="Fetch a task by id for debugging, tracing, or runner logic.",
         ),
         StructuredTool.from_function(
             task_list,
             name="task.list",
-            description="List tasks by type/state.",
+            description="List tasks by type/state for runner polling, dashboards, or maintenance.",
         ),
-        StructuredTool.from_function(
-            task_claim,
-            name="task.claim",
-            description="Claim a task for execution.",
-        ),
-        StructuredTool.from_function(
-            task_complete,
-            name="task.complete",
-            description="Mark a task as complete.",
-        ),
-        StructuredTool.from_function(
-            task_fail,
-            name="task.fail",
-            description="Mark a task as failed.",
-        ),
+        # StructuredTool.from_function(
+        #     task_claim,
+        #     name="task.claim",
+        #     description="Claim a task for execution.",
+        # ),
+        # StructuredTool.from_function(
+        #     task_complete,
+        #     name="task.complete",
+        #     description="Mark a task as complete.",
+        # ),
+        # StructuredTool.from_function(
+        #     task_fail,
+        #     name="task.fail",
+        #     description="Mark a task as failed.",
+        # ),
         StructuredTool.from_function(
             artifact_write,
             name="artifact.write",
-            description="Write an artifact and return its id.",
+            description=(
+                "Persist an artifact (text body + media_type + metadata) for later retrieval via semantic search and reuse across steps/workers."
+                "Use to store fetched web content, intermediate results, or user-requested temporary notes."
+            ),
         ),
         StructuredTool.from_function(
             artifact_read,
             name="artifact.read",
-            description="Read an artifact by id.",
+            description=(
+                "Read a stored artifact by id (returns full body)."
+                "Use when you already know the exact artifact to reuse."
+            ),
         ),
         StructuredTool.from_function(
             artifact_extract,
             name="artifact.extract",
-            description="Extract information from an artifact using the LLM.",
+            description=(
+                "Run LLM-based extraction over an artifact specified by id using provided instructions (e.g., pull facts, make bullet notes, extract entities)."
+                "Use after artifact.search when the body is long and you only need specific information; prefer this over artifact.read when possible."
+            ),
         ),
         StructuredTool.from_function(
             artifact_search,
             name="artifact.search",
-            description="Search artifacts by metadata.",
+            description=(
+                "Semantic search over stored artifacts using an embedding query against artifact bodies."
+                "Returns artifact IDs only (and optionally scores if available)."
+                "Use to locate relevant artifacts, then call artifact.read to fetch the body or artifact.extract to pull targeted information."
+            ),
         ),
         StructuredTool.from_function(
             artifact_list,
             name="artifact.list",
-            description="List stored artifacts.",
+            description="List stored artifacts for inspection/debugging. Prefer artifact.search for finding relevant artifacts by meaning.",
         ),
     ]
 

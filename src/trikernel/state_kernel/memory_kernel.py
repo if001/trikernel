@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
-from typing import Sequence
+from typing import Sequence, Type
 
 from langgraph.store.base import BaseStore
 
 from ..utils.logging import get_logger
+from .memory_schemas import Episode, Procedure, Triple, UserProfile
 
 logger = get_logger(__name__)
 
@@ -89,13 +89,82 @@ def _format_memory_item(item: object, include_score: bool) -> str:
     value = getattr(item, "value", None)
     key = getattr(item, "key", None)
     score = getattr(item, "score", None)
+    header_parts: list[str] = []
+    if key:
+        header_parts.append(f"key={key}")
+    if include_score and score is not None:
+        header_parts.append(f"score={score:.3f}")
+    header = " ".join(header_parts) if header_parts else "item"
+
     if isinstance(value, dict):
-        payload: dict[str, object] = {"value": value}
-        if key:
-            payload["key"] = key
-        if include_score and score is not None:
-            payload["score"] = score
-        return json.dumps(payload, ensure_ascii=False)
+        details = _format_content_lines(value)
+        if details:
+            return header + "\n  - " + "\n  - ".join(details)
+        return header
     if value is not None:
-        return str(value)
-    return ""
+        return header + f"\n  - value: {_stringify_value(value)}"
+    return header
+
+
+def _format_content_lines(value: dict) -> list[str]:
+    content = value.get("content") if isinstance(value, dict) else None
+    kind = value.get("kind") if isinstance(value, dict) else None
+    if isinstance(content, dict):
+        formatted = _format_schema_content(kind, content)
+        if formatted:
+            return formatted.splitlines()
+        return _format_kv_lines(content)
+    return _format_kv_lines(value)
+
+
+def _format_schema_content(kind: object, content: dict) -> str:
+    model_type: Type[UserProfile | Triple | Episode | Procedure] | None = None
+    if isinstance(kind, str):
+        kind_lower = kind.lower()
+        if "profile" in kind_lower:
+            model_type = UserProfile
+        elif "semantic" in kind_lower or "triple" in kind_lower:
+            model_type = Triple
+        elif "episode" in kind_lower or "episodic" in kind_lower:
+            model_type = Episode
+        elif "procedure" in kind_lower:
+            model_type = Procedure
+    if model_type is None:
+        model_type = _infer_schema(content)
+    if model_type is None:
+        return ""
+    try:
+        model = model_type(**content)
+    except Exception:
+        return ""
+    return model.format_markdown()
+
+
+def _infer_schema(content: dict) -> Type[UserProfile | Triple | Episode | Procedure] | None:
+    keys = set(content.keys())
+    if {"subject", "predicate", "object"} <= keys:
+        return Triple
+    if {"summary"} <= keys:
+        return Episode
+    if {"pattern", "description"} <= keys:
+        return Procedure
+    if keys & {"display_name", "bio", "preferences", "tags"}:
+        return UserProfile
+    return None
+
+
+def _format_kv_lines(value: dict) -> list[str]:
+    lines: list[str] = []
+    for k, v in value.items():
+        lines.append(f"{k}: {_stringify_value(v)}")
+    return lines
+
+
+def _stringify_value(value: object) -> str:
+    if isinstance(value, list):
+        return ", ".join(_stringify_value(v) for v in value)
+    if isinstance(value, dict):
+        return ", ".join(f"{k}={_stringify_value(v)}" for k, v in value.items())
+    if value is None:
+        return "null"
+    return str(value)

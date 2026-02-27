@@ -153,13 +153,13 @@ def build_web_tools() -> List[BaseTool]:
         StructuredTool.from_function(
             web_query,
             name="web.query",
-            description="Generate a web search query from user message and history.",
+            description="Generate a focused web search query from the user message and current context. Use before web.list.",
             args_schema=WebQueryArgs,
         ),
         StructuredTool.from_function(
             web_list,
             name="web.list",
-            description="Fetch a list of web search results.",
+            description="Fetch top-k web search results (snippets/urls). Use to choose candidate pages for reading.",
             args_schema=WebListArgs,
         ),
         # StructuredTool.from_function(
@@ -170,6 +170,9 @@ def build_web_tools() -> List[BaseTool]:
         StructuredTool.from_function(
             web_page_ref,
             name="web.page_ref",
-            description="Fetch web pages and store content as an artifact.",
+            description=(
+                "Fetch one or more web pages and store the extracted text as artifacts."
+                "Use artifact.search to retrieve relevant pages later by meaning, then artifact.read / artifact.extract to consume them."
+            ),
         ),
     ]

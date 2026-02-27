@@ -44,17 +44,17 @@ def build_memory_tools(store: BaseStore) -> List[BaseTool]:
             namespace=("memory", "{langgraph_user_id}", "episodic"),
             name="memory.episode.search",
         ),
-        _manage_tool(
-            store,
-            namespace=("memory", "{langgraph_user_id}", "procedural"),
-            name="memory.procedure.manage",
-            schema=Procedure,
-        ),
-        _search_tool(
-            store,
-            namespace=("memory", "{langgraph_user_id}", "procedural"),
-            name="memory.procedure.search",
-        ),
+        # _manage_tool(
+        #     store,
+        #     namespace=("memory", "{langgraph_user_id}", "procedural"),
+        #     name="memory.procedure.manage",
+        #     schema=Procedure,
+        # ),
+        # _search_tool(
+        #     store,
+        #     namespace=("memory", "{langgraph_user_id}", "procedural"),
+        #     name="memory.procedure.search",
+        # ),
     ]
 
 
