@@ -19,7 +19,7 @@ def register_default_tools(kernel: ToolKernel, *, store: BaseStore) -> None:
         + build_system_tools()
         + build_writing_tools()
         + build_file_tools()
-        + build_memory_tools(store)
+        # + build_memory_tools(store)
     )
     for tool in tools:
         kernel.tool_register(tool)

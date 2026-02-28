@@ -90,7 +90,7 @@ def build_system_tools() -> list[BaseTool]:
             step_goal,
             name="step.goal",
             description=(
-                "Propose/refine the next step goal given the current context (including failure reason)."
+                "Propose/refine the next step goal given the current context (including failure reason).\n"
                 "Use at the start of each tool-execution loop iteration to keep actions aligned with the user’s intent."
             ),
         )

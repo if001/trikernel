@@ -329,9 +329,9 @@ def build_state_tools() -> List[BaseTool]:
             task_create_work,
             name="task.create_work",
             description=(
-                "Start a worker deep-work job for investigations that may exceed the main agent’s per-step tool-call budget."
-                "Use when the main loop needs to offload long-running research / multi-hop browsing / heavy extraction beyond allowed tool iterations."
-                "Not for scheduling; for time-based or periodic runs use task.create_work_at / task.create_work_repeat."
+                "Start a worker deep-work job for investigations that may exceed the main agent’s per-step tool-call budget.\n"
+                "Use when the main loop needs to offload long-running research / multi-hop browsing / heavy extraction beyond allowed tool iterations.\n"
+                "Not for scheduling; for time-based or periodic runs use task.create_work_at / task.create_work_repeat.\n"
                 "The worker runtime will always emit a notification at the end (not via this tool call)."
             ),
         ),
@@ -339,8 +339,8 @@ def build_state_tools() -> List[BaseTool]:
             task_create_work_at,
             name="task.create_work_at",
             description=(
-                "Schedule a worker job at a specific run_at (ISO8601)."
-                "Use for reminders, delayed checks, or actions that must happen at a certain time."
+                "Schedule a worker job at a specific run_at (ISO8601).\n"
+                "Use for reminders, delayed checks, or actions that must happen at a certain time.\n"
                 "Not for deep-work offloading; use task.create_work if the goal is to exceed main-loop tool budget."
             ),
         ),
@@ -348,8 +348,8 @@ def build_state_tools() -> List[BaseTool]:
             task_create_work_repeat,
             name="task.create_work_repeat",
             description=(
-                "Schedule a repeating worker job at a fixed interval (repeat_interval_seconds >= 3600)."
-                "Use for periodic monitoring/digests/maintenance."
+                "Schedule a repeating worker job at a fixed interval (repeat_interval_seconds >= 3600).\n"
+                "Use for periodic monitoring/digests/maintenance.\n"
                 "Each run will end with a notification emitted by the worker runtime."
             ),
         ),
@@ -392,7 +392,7 @@ def build_state_tools() -> List[BaseTool]:
             artifact_write,
             name="artifact.write",
             description=(
-                "Persist an artifact (text body + media_type + metadata) for later retrieval via semantic search and reuse across steps/workers."
+                "Persist an artifact (text body + media_type + metadata) for later retrieval via semantic search and reuse across steps/workers.\n"
                 "Use to store fetched web content, intermediate results, or user-requested temporary notes."
             ),
         ),
@@ -400,7 +400,7 @@ def build_state_tools() -> List[BaseTool]:
             artifact_read,
             name="artifact.read",
             description=(
-                "Read a stored artifact by id (returns full body)."
+                "Read a stored artifact by id (returns full body).\n"
                 "Use when you already know the exact artifact to reuse."
             ),
         ),
@@ -408,7 +408,7 @@ def build_state_tools() -> List[BaseTool]:
             artifact_extract,
             name="artifact.extract",
             description=(
-                "Run LLM-based extraction over an artifact specified by id using provided instructions (e.g., pull facts, make bullet notes, extract entities)."
+                "Run LLM-based extraction over an artifact specified by id using provided instructions (e.g., pull facts, make bullet notes, extract entities).\n"
                 "Use after artifact.search when the body is long and you only need specific information; prefer this over artifact.read when possible."
             ),
         ),
@@ -416,8 +416,8 @@ def build_state_tools() -> List[BaseTool]:
             artifact_search,
             name="artifact.search",
             description=(
-                "Semantic search over stored artifacts using an embedding query against artifact bodies."
-                "Returns artifact IDs only (and optionally scores if available)."
+                "Semantic search over stored artifacts using an embedding query against artifact bodies.\n"
+                "Returns artifact IDs only (and optionally scores if available).\n"
                 "Use to locate relevant artifacts, then call artifact.read to fetch the body or artifact.extract to pull targeted information."
             ),
         ),

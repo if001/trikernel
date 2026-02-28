@@ -5,7 +5,6 @@ from .memory_kernel import MemoryKernel
 from .memory_manager import LangMemMemoryManager
 from .memory_store import build_memory_store
 from .memory_schemas import Episode, Procedure, Triple, UserProfile
-from .memory_tools import build_memory_tools
 from .models import Artifact, Task
 from .ollama import StateOllamaLLM
 from .protocols import ArtifactStore, MessageStoreAPI, StateKernelAPI, TaskStore
@@ -25,7 +24,6 @@ __all__ = [
     "Procedure",
     "Triple",
     "UserProfile",
-    "build_memory_tools",
     "StateOllamaLLM",
     "ArtifactStore",
     "MessageStoreAPI",

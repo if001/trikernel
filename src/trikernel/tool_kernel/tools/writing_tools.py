@@ -158,7 +158,7 @@ def build_writing_tools() -> List[BaseTool]:
             summarize_text,
             name="text.summarize",
             description=(
-                "Summarize long text into a shorter form with optional max length/style/language."
+                "Summarize long text into a shorter form with optional max length/style/language.\n"
                 "Use to compress tool results before adding them to prompts/artifacts."
             ),
         ),
@@ -166,7 +166,7 @@ def build_writing_tools() -> List[BaseTool]:
             extract_corresponding,
             name="text.extract",
             description=(
-                "Extract specific information from target_text, guided by source_text and optional criteria."
+                "Extract specific information from target_text, guided by source_text and optional criteria.\n"
                 "Use when you have a reference schema/template and want structured selection."
             ),
         ),
@@ -174,7 +174,7 @@ def build_writing_tools() -> List[BaseTool]:
             create_outline,
             name="article.outline",
             description=(
-                "Create an article outline from user intent and tool result summaries."
+                "Create an article outline from user intent and tool result summaries.\n"
                 "Use when the user asks for a written deliverable (blog, doc, report)."
             ),
         ),
@@ -187,7 +187,7 @@ def build_writing_tools() -> List[BaseTool]:
             generate_article,
             name="article.generate",
             description=(
-                "Generate a full article from an outline and/or draft + revision points."
+                "Generate a full article from an outline and/or draft + revision points.\n"
                 "Use for final deliverable generation, not for internal reasoning."
             ),
         ),
