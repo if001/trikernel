@@ -75,6 +75,25 @@ class SimpleStepContext:
 
 
 @dataclass
+class ToolStepContext:
+    last_observation: str = ""
+    error_summary: str = ""
+    need_clarification: List[str] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+    budget: Budget = field(default_factory=lambda: Budget(remaining_steps=5))
+
+    def to_str(self) -> str:
+        return (
+            f"- last_observation: {self.last_observation}\n"
+            f"- error_summary: {self.error_summary}\n"
+            f"- need_clarification: {self.need_clarification}\n"
+            f"- notes: {self.notes}\n"
+            f"- remaining_step: {self.budget.remaining_steps}\n"
+            f"- spent_steps: {self.budget.spent_steps}\n"
+        )
+
+
+@dataclass
 class StepContext:
     facts: List[str] = field(default_factory=list)
     open_issues: List[str] = field(default_factory=list)

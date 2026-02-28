@@ -4,8 +4,14 @@ import asyncio
 import os
 from dotenv import load_dotenv
 
+from trikernel.orchestration_kernel.llm.gemini import GeminiLLM
+from trikernel.orchestration_kernel.runners.deep_tool_loop import DeepToolLoopRunner
 from ui.discord_client_ui import DiscordBot, get_intents
-from trikernel.orchestration_kernel import OllamaLLM, LangGraphToolLoopRunner, get_logger
+from trikernel.orchestration_kernel import (
+    OllamaLLM,
+    LangGraphToolLoopRunner,
+    get_logger,
+)
 from trikernel.execution.session import TrikernelSession
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.state_kernel.memory_store import build_memory_store
@@ -29,6 +35,7 @@ DISCORD_READ_CHANNEL_ID = int(os.getenv("DISCORD_READ_CHANNEL_ID", -1))
 async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
     logger.info("runner_loop")
     llm = OllamaLLM()
+    # llm = GeminiLLM()
     tool_llm = ToolOllamaLLM()
     state = StateKernel()
     tool_kernel = ToolKernel(re_index=False)
@@ -37,7 +44,7 @@ async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
         register_default_tools(tool_kernel, store=store)
         for tool in build_web_tools():
             tool_kernel.tool_register(tool)
-
+        # tool_kernel.debug()
         session = TrikernelSession(
             state,
             tool_kernel,
@@ -102,7 +109,8 @@ async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
 
 
 def main() -> None:
-    runner = LangGraphToolLoopRunner()
+    runner = DeepToolLoopRunner()
+    # runner = LangGraphToolLoopRunner()
     intents = get_intents()
     ui = DiscordBot(intents=intents, runner_loop=lambda bot: runner_loop(bot, runner))
     if not TOKEN:

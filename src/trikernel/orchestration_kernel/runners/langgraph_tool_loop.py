@@ -89,6 +89,7 @@ class LangGraphToolLoopRunner:
                         "stop": False,
                         "runtime_id": runner_context.conversation_id,
                         "task_id": task.task_id,
+                        "memory_context_text": "",
                     },
                     config=config,
                     # debug=True,
@@ -228,14 +229,7 @@ def _build_graph(
             + list(messages)
             + [HumanMessage(content=prompt)]
         )
-        _in = (
-            [SystemMessage(content=system)]
-            + list(messages)
-            + [HumanMessage(content=prompt)]
-        )
-        logger.info(f"debug: {_in}")
         query = response.content or ""
-        logger.info(f"debug: tool select query: {query}")
         selected = set(runner_context.tool_api.tool_search(str(query)))
         return {"tool_set": selected}
 
@@ -270,15 +264,19 @@ def _build_graph(
         _tool_name = [v.name for v in allowed]
         logger.info(f"allowed tools: {_tool_name}")
         messages = _trim_state_messages(state["messages"])
-        logger.info(f"trimed messsages!!! {messages}")
         response = model.bind_tools(allowed).invoke(
             [SystemMessage(content=system)]
             + list(messages)
             + [HumanMessage(content=prompt)]
         )
+        _in = (
+            [SystemMessage(content=system)]
+            + list(messages)
+            + [HumanMessage(content=prompt)]
+        )
+        logger.info(f"debug tool prompt::: {_in}")
         state["step_context"].budget.spent_steps += 1
         state["step_context"].budget.remaining_steps -= 1
-        logger.info(f"response {response}")
         if response.content == "" and not response.tool_calls:
             in_token_cnt, out_token_cnt, total_token = -1, -1, -1
             if response.usage_metadata:
@@ -328,6 +326,12 @@ def _build_graph(
             + list(messages)
             + [HumanMessage(content=prompt)]
         )
+        _in = (
+            [SystemMessage(content=system)]
+            + list(messages)
+            + [HumanMessage(content=prompt)]
+        )
+        logger.info(f"debug folow up prompt::: {_in}")
         return {"messages": [response]}
 
     graph.add_node("build_memory", build_memory)
@@ -463,8 +467,11 @@ def _build_memory_context(
     if memory_kernel is None:
         return ""
     profile_text = memory_kernel.get_profile_context(limit=1)
+    logger.info(f"profile_text: {profile_text}")
     semantic_text = memory_kernel.get_semantic_context(query, limit=1)
+    logger.info(f"semantic_text: {semantic_text}")
     episodic_text = memory_kernel.get_episodic_context(query, limit=1)
+    logger.info(f"episodic_text: {episodic_text}")
 
     return "\n".join(
         part for part in (profile_text, semantic_text, episodic_text) if part
