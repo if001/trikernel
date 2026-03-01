@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List
+import sys
+from typing import Any, Dict, List, Optional
 
 from trikernel.orchestration_kernel.models import SimpleStepContext
 from trikernel.utils.time_utils import now_iso
@@ -207,9 +208,6 @@ def build_tool_loop_followup_prompt(
     step_context_text: str,
     memory_context_text: str = "",
 ) -> tuple[str, str]:
-    memory_block = (
-        f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
-    )
     system = (
         "あなたは誠実で専門的なアシスタントです。\n"
         "これまでのツール実行結果に基づき、ユーザーの質問に対する最終的な回答を作成してください。\n\n"
@@ -225,8 +223,15 @@ def build_tool_loop_followup_prompt(
         "### 人格/性格\n"
         f"{PERSONA}\n\n"
     )
+    memory_block = (
+        f"# Memory context\n{memory_context_text}\n\n" if memory_context_text else ""
+    )
     prompt = (
-        f"User input: {user_message}\n{memory_block}Step context: {step_context_text}\n"
+        f"{memory_block}"
+        "# Step context\n"
+        f"{step_context_text}\n\n"
+        "# User input\n"
+        f"{user_message}"
     )
     return system, prompt
 
@@ -251,10 +256,12 @@ def build_tool_loop_followup_prompt_for_notification(
         f"{PERSONA}\n\n"
     )
     memory_block = (
-        f"Memory context:\n{memory_context_text}\n" if memory_context_text else ""
+        f"# Memory context\n{memory_context_text}\n\n" if memory_context_text else ""
     )
     prompt = (
-        f"Worker input: {message}\n{memory_block}Step context: {step_context_text}\n"
+        f"{memory_block}"
+        f"# Step context\n{step_context_text}\n\n"
+        f"# Worker input\n{message}"
     )
     return system, prompt
 
@@ -351,8 +358,8 @@ def build_discover_tools_simple_prompt(
     prompt = (
         f"{memory_block}\n\n"
         f"Step context: \n{step_context_text}\n\n"
-        f"User Input: \n{user_input}\n\n"
         f"Tool Overview: \n{tools_text}"
+        f"User Input: \n{user_input}\n\n"
     )
     return system, prompt
 
@@ -362,13 +369,14 @@ def build_discover_tools_deep_prompt(
     tools_text: str,
     step_context_text: str,
     memory_context_text: str = "",
+    phase_goal: str = "",
 ) -> tuple[str, str]:
     system = (
         "あなたは、ユーザーの入力を分析し、膨大なツールセットの中から最適なツールを検索するための「検索クエリ」を作成するエキスパートです。\n\n"
         f"現在時刻: {now_iso()}\n\n"
         "# Task\n"
         "与えられた「ユーザーの入力」「会話履歴」「ツールのリスト（名前と概要）」を元に、ベクトル検索に最も適した検索クエリを生成してください。\n"
-        "あなたの役割は、現在のフェーズ（phase）と目的（goal）に基づき、\n"
+        "あなたの役割は、現在のフェーズ（phase）と目的（phase_goal）に基づき、\n"
         "ツールの説明文に対するベクトル検索に最適な検索クエリを生成することです。\n\n"
         "# フェーズの意味\n"
         "phaseは次のいずれかです：\n"
@@ -393,12 +401,167 @@ def build_discover_tools_deep_prompt(
     )
 
     memory_block = (
-        f"Memory context:\n{memory_context_text}\n\n" if memory_context_text else ""
+        f"# Memory context:\n{memory_context_text}\n\n" if memory_context_text else ""
     )
     prompt = (
         f"{memory_block}\n\n"
-        f"Step context: \n{step_context_text}\n\n"
-        f"User Input: \n{user_input}\n\n"
-        f"Tool Overview: \n{tools_text}"
+        f"# Step context\n{step_context_text}\n\n"
+        f"# Phase goal\n{phase_goal}\n\n"
+        f"# Tool Overview\n{tools_text}\n\n"
+        f"# User Input\n{user_input}"
     )
+    return system, prompt
+
+
+def build_plan_prompt(
+    user_message: str,
+    memory_context_text: str,
+    phase: Optional[str] = None,
+    phase_goal: Optional[str] = None,
+    last_observation: Optional[str] = None,
+    notes: List[str] = [],
+    need_clarification: List[str] = [],
+    remaining_steps: int = 5,
+    spent_steps: int = 5,
+) -> tuple[str, str]:
+    system = (
+        "あなたは、タスクを段階的に進めるエージェントの「計画モジュール」です。\n"
+        "あなたの役割は、現在の状態と目標に基づき、次の反復で実行すべきフェーズ（phase）と、その狙い（intent）を決定することです。\n\n"
+        "# フェーズの定義\n"
+        "次のいずれか1つを選択してください：\n"
+        "- get:\n"
+        "必要な情報・資料・対象を取得する段階です。情報が不足している、対象が未取得、参照先が未確定の場合に選択してください。\n"
+        "- work:\n"
+        "取得済みの情報・資料を加工・解釈・整理・抽出・統合、または外部タスクの作成などを行う段階です。\n"
+        "必要な情報は存在するが、まだ最終回答に使える形になっていない場合に選択してください。\n"
+        "- finish\n"
+        "すでに十分な情報があり、ツールを使わずに最終回答を生成できる段階です。\n"
+        "追加のツール利用が不要な場合に選択してください。\n\n"
+        "# 重要な制約\n"
+        "- 必ず1つのフェーズのみを選択してください。\n"
+        "- ツール名を出力してはいけません。\n"
+        "- 実行手順の詳細は書かず、「次の反復の狙い」のみを簡潔に記述してください。\n"
+        "- 不必要にgetを繰り返さないでください。\n"
+        "- 不必要にworkを繰り返さないでください。\n"
+        "- remaining_stepは残されたステップ数です。spent_stepsは消費したステップ数です。\n\n"
+        "# 出力形式（JSON）\n"
+        "JSON以外の出力は禁止です。\n"
+        "次の形式でのみ出力してください：\n"
+        "{\n"
+        '"phase": "get | work | finish",\n'
+        '"phase_gole": "次の反復で達成すべき具体的な狙い（1文）\n'
+        "}"
+    )
+    phase_block = f"## Previous Phase\n{phase}\n\n" if phase else ""
+    goal_block = f"## Previous Goal\n{phase_goal}\n\n" if phase_goal else ""
+    last_observation_block = (
+        f"## Observation Result\n{last_observation}\n\n" if last_observation else ""
+    )
+    notes_block = f"## Notes\n{','.join(notes)}\n\n" if notes else ""
+    need_clarification_block = (
+        f"## Need clarification\n{','.join(need_clarification)}\n\n"
+        if need_clarification
+        else ""
+    )
+    budget_block = (
+        f"## Step\nremaining_step: {remaining_steps}\n spent_steps: {spent_steps}\n\n"
+    )
+
+    prompt = (
+        "## Memory context\n"
+        f"{memory_context_text}\n\n"
+        f"{phase_block}"
+        f"{goal_block}"
+        f"{last_observation_block}"
+        f"{notes_block}"
+        f"{need_clarification_block}"
+        f"{budget_block}"
+        "## User input\n"
+        f"{user_message}"
+    )
+    return system, prompt
+
+
+def build_observe_prompt(
+    tool_result: str,
+    phase: str,
+    phase_goal: str,
+    last_observation,
+    notes: List[str],
+    need_clarification: List[str],
+    error_summary: str,
+) -> tuple[str, str]:
+    system = """あなたは、ツール実行結果を次の反復のための状態(state)に反映する「観測・圧縮モジュール」です。
+
+あなたの役割は、直前のツール実行結果（ToolNodeの結果）と直前までのstateを読み、
+次の plan が迷わず GET/WORK/FINISH を判断できるように、情報を短く・構造化して state を更新することです。
+
+# 目的（最重要）
+- ツール結果の“全文”を保持しない
+- 次の反復に必要なと「要点（notes）」だけを抽出して state に入れる
+- 進捗の有無・停滞・エラーを検知し、planに渡す
+
+# 重要な制約
+- ツール結果をそのまま長文で貼らない
+- stateに入れるテキストは短く（last_observationは最大3行、notesは箇条書きで短文）
+
+# state更新の方針（抽象）
+次の情報を更新してください：
+
+1) last_observation:
+   - この反復で何が得られたか（最大3行）
+   - 「次に何が可能になったか」を含める
+
+3) notes:
+   - 最終回答に使える要点のみを短い箇条書きで追加
+   - 可能なら出典として artifact_id や URL を添える（本文は入れない）
+
+4) need_clarification:
+   - 進行に必要だが不足している情報があれば、ユーザーに確認すべき質問を短く列挙
+
+6) error_summary:
+   - エラーがある場合、原因の要約（1行）を入れる
+
+7) stop:
+   - この反復で「もうツール不要」まで確信できる場合のみ true
+   - それ以外は false
+   （通常 stop の決定は plan が行うが、明確に終了できる場合のみ observe が true にしてよい）
+
+# 進捗(Progress)の判定基準
+以下のいずれかが増えた/確定したら「進捗あり」とする：
+- 新しい artifact_id / task_id / file_path / URL が得られた
+- notes に新しい事実・結論・根拠が追加できた
+- need_clarification が減った、または解消した
+- 以前の失敗が解決した（エラーが消えた）
+
+# 入力
+- 直前のツール呼び出し内容（tool name, tool input）
+- ツール出力（tool result）
+- 直前までのstate（phase, intent, artifact_ids, notes, need_clarification など）
+- 会話履歴(messages)（必要なら参照してよいが、出力に長文を引用しない）
+
+# 出力形式（JSONのみ）
+次のキーを持つJSONを必ず出力してください
+
+{
+  "last_observation": "最大3行",
+  "notes": ["..."],
+  "need_clarification": ["...", "..."],
+  "error_summary": "1行（なければ空）",
+  "stop": true | false
+}"""
+
+    prompt = f"""# 直前のフェーズと狙い
+phase: {phase}
+phase_goal: {phase_goal}
+
+# 直前までのstate
+last_observation: {last_observation}
+notes: {",".join(notes)}
+need_clarification: {",".join(need_clarification)}
+error_summary: {error_summary}
+
+# ツール結果
+tool_result: {tool_result}"""
+
     return system, prompt
