@@ -4,11 +4,11 @@ import asyncio
 import os
 from dotenv import load_dotenv
 
-from trikernel.orchestration_kernel.llm.gemini import GeminiLLM
+from trikernel.orchestration_kernel.llm.gemini import newGeiminiClient
+from trikernel.orchestration_kernel.llm.ollama import newOllamaClient
 from trikernel.orchestration_kernel.runners.deep_tool_loop import DeepToolLoopRunner
 from ui.discord_client_ui import DiscordBot, get_intents
 from trikernel.orchestration_kernel import (
-    OllamaLLM,
     LangGraphToolLoopRunner,
     get_logger,
 )
@@ -34,8 +34,10 @@ DISCORD_READ_CHANNEL_ID = int(os.getenv("DISCORD_READ_CHANNEL_ID", -1))
 
 async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
     logger.info("runner_loop")
-    llm = OllamaLLM()
-    # llm = GeminiLLM()
+
+    llm = newOllamaClient()
+    # gemini_llm = newGeiminiClient()
+
     tool_llm = ToolOllamaLLM()
     state = StateKernel()
     tool_kernel = ToolKernel(re_index=False)
@@ -45,12 +47,14 @@ async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
         for tool in build_web_tools():
             tool_kernel.tool_register(tool)
         # tool_kernel.debug()
+
         session = TrikernelSession(
-            state,
-            tool_kernel,
-            runner,
-            llm,
-            tool_llm,
+            state_api=state,
+            tool_api=tool_kernel,
+            runner=runner,
+            large_llm_api=llm,
+            llm_api=llm,
+            tool_llm_api=tool_llm,
             message_store=message_store,
             store=store,
         )

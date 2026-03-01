@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import threading
 from typing import Any, Dict, List, Optional, Union
 
+from langchain.chat_models import BaseChatModel
 from langgraph.store.base import BaseStore
 
 from trikernel.utils.logging import get_logger
@@ -15,7 +16,7 @@ from .dispatcher import DispatchConfig, WorkDispatcher
 from .worker import WorkWorker
 from .loop import ExecutionLoop, LoopConfig
 from ..orchestration_kernel.models import RunResult, RunnerContext
-from ..orchestration_kernel.protocols import OrchestrationLLM, Runner
+from ..orchestration_kernel.protocols import Runner
 from ..state_kernel.memory_manager import LangMemMemoryManager
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
@@ -38,10 +39,12 @@ class MessageResult:
 class TrikernelSession:
     def __init__(
         self,
+        *,
         state_api: StateKernelAPI,
         tool_api: ToolKernel,
         runner: Runner,
-        llm_api: OrchestrationLLM,
+        llm_api: BaseChatModel,
+        large_llm_api: BaseChatModel,
         tool_llm_api: ToolLLMBase,
         message_store: MessageStoreAPI,
         store: BaseStore,
@@ -55,6 +58,7 @@ class TrikernelSession:
         self._tool_api = tool_api
         self._runner = runner
         self._llm_api = llm_api
+        self._large_llm_api = large_llm_api
         self._tool_llm_api = tool_llm_api
         self._message_store = message_store
         self._store = store
@@ -219,6 +223,7 @@ class TrikernelSession:
             state_api=self._state_api,
             message_store=self._message_store,
             tool_api=self._tool_api,
+            large_llm_api=self._large_llm_api,
             llm_api=self._llm_api,
             tool_llm_api=self._tool_llm_api,
             store=self._store,

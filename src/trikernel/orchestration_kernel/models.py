@@ -4,10 +4,11 @@ from dataclasses import dataclass, field
 import json
 from typing import Any, Dict, List, Optional
 
+from langchain.chat_models import BaseChatModel
+
 from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
 from ..tool_kernel.kernel import ToolKernel
 from langgraph.store.base import BaseStore
-from .protocols import OrchestrationLLM
 from ..tool_kernel.protocols import ToolLLMBase
 
 
@@ -32,7 +33,8 @@ class RunnerContext:
     state_api: StateKernelAPI
     message_store: MessageStoreAPI
     tool_api: ToolKernel
-    llm_api: OrchestrationLLM
+    large_llm_api: BaseChatModel
+    llm_api: BaseChatModel
     tool_llm_api: ToolLLMBase
     store: BaseStore
     stream: bool = False

@@ -34,7 +34,7 @@ class WebListArgs(BaseModel):
 
 
 class WebPageArgs(BaseModel):
-    urls: str = Field(..., description="Comma-separated URLs.")
+    url: str = Field(..., description="Comma-separated URLs.")
 
 
 def load_web_client_config() -> WebClientConfig:
@@ -78,7 +78,7 @@ def web_page(
 ) -> Dict[str, Any]:
     _ = state
     config = load_web_client_config()
-    payload_dict = {"urls": payload.urls}
+    payload_dict = {"urls": payload.url}
     return _post_json(f"{config.base_url}/page", payload_dict)
 
 
@@ -91,7 +91,7 @@ def web_page_ref(
     artifact_id = state_api.artifact_write(
         "application/json",
         json.dumps(response, ensure_ascii=False),
-        {"source": "web.page", "urls": payload.urls},
+        {"source": "web.page", "url": payload.url},
     )
     return {"artifact_id": artifact_id}
 

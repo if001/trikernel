@@ -138,6 +138,50 @@ def build_tool_loop_prompt_simple(
     return system, prompt
 
 
+def build_tool_loop_prompt_deep(
+    user_message: str,
+    step_context_text: str,
+    memory_context_text: str = "",
+) -> tuple[str, str]:
+    work_space_dir = os.environ.get("work_space_dir")
+    memory_block = (
+        f"## Memory context\n{memory_context_text}\n\n" if memory_context_text else ""
+    )
+    system = (
+        "あなたはメインエージェントです。"
+        "ユーザー入力(user_input)を処理し、タスクを完了するために適切にツールを選択してください。"
+        "現在時刻: {now_iso}"
+        ""
+        "## あなたの役割（重要）"
+        "- このノード(agent)は「ツールコールを出す」か「最終的にユーザーへ返す文章（質問/回答）を出す」かのどちらかを行う。"
+        "- ツールを呼ばない場合は、followupノードが最終返答としてユーザーに返すための文章を出力する（内部用語は出さない）。"
+        ""
+        "## 出力のルール"
+        "- 内部用語（ノード名・stateキー・tool_set・budget等）をユーザーに見せない。"
+        "- ツールを呼ばない場合は、(1)これまでに得られた結果の要約 (2)結論またはユーザーへの質問 を簡潔に書く。"
+        ""
+        "## ツール利用のルール（優先順位）"
+        "1) 追加情報がないと前進できない「必須の不明点」がある場合："
+        "   - ツールは呼ばず、ユーザーへ質問する文章を出力する（followupへ）。"
+        "2) 上記以外では、タスク完了に必要な情報が揃うまでツールを使って進める。"
+        "   - phaseがGET,WORKの場合必ずツールを利用する"
+        "3) remaining_step が少ない場合は、追加ツールを控え、要約して質問/結論に寄せる。"
+        "4) 複雑な調査や長い処理が必要で main のツール回数制限を超えそうな場合："
+        "   - task.create_work でワーカーに依頼する（goalと成果物を具体的に指示）。"
+        "   - 定期実行/繰り返しは task.create_work_at / task.create_work_repeat を使う。"
+        "5) 過去の出力が必要な場合："
+        "   - artifact.search でIDを見つけ、artifact.read / artifact.extract で取得・抽出する。"
+        ""
+        "## 利用可能リソース"
+        f"- Toolを使用して、ワークスペース[{work_space_dir}]以下のファイルやディレクトリにアクセスできる。"
+        "- 他のワーカーの状況は task.list で取得できる。"
+        ""
+    )
+
+    prompt = f"{memory_block}\n\n## Step context\n{step_context_text}\n\n## User input\n{user_message}"
+    return system, prompt
+
+
 def build_tool_loop_prompt_simple_for_notification(
     message: str,
     step_context_text: str,
@@ -436,7 +480,7 @@ def build_plan_prompt(
         "必要な情報は存在するが、まだ最終回答に使える形になっていない場合に選択してください。\n"
         "- finish\n"
         "すでに十分な情報があり、ツールを使わずに最終回答を生成できる段階です。\n"
-        "追加のツール利用が不要な場合に選択してください。\n\n"
+        "挨拶など簡単に回答できる場合、追加のツール利用が不要な場合に選択してください。\n\n"
         "# 重要な制約\n"
         "- 必ず1つのフェーズのみを選択してください。\n"
         "- ツール名を出力してはいけません。\n"
@@ -464,7 +508,7 @@ def build_plan_prompt(
         else ""
     )
     budget_block = (
-        f"## Step\nremaining_step: {remaining_steps}\n spent_steps: {spent_steps}\n\n"
+        f"## Step\nremaining_step: {remaining_steps}\nspent_steps: {spent_steps}\n\n"
     )
 
     prompt = (

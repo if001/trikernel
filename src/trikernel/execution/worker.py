@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
+from langchain.chat_models import BaseChatModel
+
 from trikernel.utils.logging import get_logger
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -9,7 +11,7 @@ from langgraph.store.base import BaseStore
 
 from ..orchestration_kernel.models import RunResult, RunnerContext
 from ..state_kernel.memory_manager import LangMemMemoryManager
-from ..orchestration_kernel.protocols import OrchestrationLLM, Runner
+from ..orchestration_kernel.protocols import Runner
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
 from ..tool_kernel.kernel import ToolKernel
@@ -26,7 +28,7 @@ class WorkWorker:
         message_store: MessageStoreAPI,
         tool_api: ToolKernel,
         runner: Runner,
-        llm_api: OrchestrationLLM,
+        llm_api: BaseChatModel,
         tool_llm_api: ToolLLMBase,
         memory_manager: LangMemMemoryManager,
         store: BaseStore,
@@ -45,8 +47,6 @@ class WorkWorker:
         self._store = store
         self._work_receiver = work_receiver or ZmqWorkReceiver(work_endpoint)
         self._result_sender = result_sender or ZmqResultSender(result_endpoint)
-        if hasattr(self.state_api, "set_memory_store"):
-            self.state_api.set_memory_store(store)
 
     async def run_once(self) -> None:
         payload = await self._work_receiver.try_recv_json()
