@@ -15,7 +15,7 @@ def _workspace_root() -> Path:
     load_env()
     root = os.environ.get("work_space_dir")
     if not root:
-        return Path.cwd()
+        raise ValueError("work space dir not set")
     return Path(root)
 
 

@@ -70,8 +70,6 @@ class TrikernelSession:
         self._worker: Optional[WorkWorker] = None
         self._loop: Optional[ExecutionLoop] = None
         self._loop_task: Optional[asyncio.Task] = None
-        if hasattr(self._state_api, "set_memory_store"):
-            self._state_api.set_memory_store(self._store)
 
     def send_message(self, message: str, stream: bool = False) -> MessageResult:
         task_id = self._state_api.task_create(
@@ -116,6 +114,7 @@ class TrikernelSession:
             self._enqueue_memory_update(message, assistant_message)
         if result.task_state != "done":
             assistant_message = _user_facing_error_message()
+        logger.info("end send message")
         return MessageResult(
             message=assistant_message,
             task_state=result.task_state,
