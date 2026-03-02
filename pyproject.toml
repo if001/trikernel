@@ -19,6 +19,7 @@ dependencies = [
   "pyzmq>=27.1.0",
   "langmem>=0.0.30",
   "langgraph-checkpoint-sqlite>=3.0.3",
+  "deepagents>=0.4.4",
 ]
 
 [tool.pyright]

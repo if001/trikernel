@@ -87,6 +87,7 @@ class WorkWorker:
             message_store=self.message_store,
             tool_api=self.tool_api,
             llm_api=self.llm_api,
+            large_llm_api=self.llm_api,
             tool_llm_api=self.tool_llm_api,
             store=self._store,
         )

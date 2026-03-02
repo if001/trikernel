@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from trikernel.orchestration_kernel.llm.gemini import newGeiminiClient
 from trikernel.orchestration_kernel.llm.ollama import newOllamaClient
+from trikernel.orchestration_kernel.runners.agent_loop import AgentLoopRunner
 from trikernel.orchestration_kernel.runners.deep_tool_loop import DeepToolLoopRunner
 from ui.discord_client_ui import DiscordBot, get_intents
 from trikernel.orchestration_kernel import (
@@ -36,7 +37,7 @@ async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
     logger.info("runner_loop")
 
     llm = newOllamaClient()
-    # gemini_llm = newGeiminiClient()
+    gemini_llm = newGeiminiClient()
 
     tool_llm = ToolOllamaLLM()
     state = StateKernel()
@@ -46,6 +47,7 @@ async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
         register_default_tools(tool_kernel, store=store)
         for tool in build_web_tools():
             tool_kernel.tool_register(tool)
+        state.set_memory_store(store)
         # tool_kernel.debug()
 
         session = TrikernelSession(
@@ -115,6 +117,7 @@ async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
 def main() -> None:
     runner = DeepToolLoopRunner()
     # runner = LangGraphToolLoopRunner()
+    runner = AgentLoopRunner()
     intents = get_intents()
     ui = DiscordBot(intents=intents, runner_loop=lambda bot: runner_loop(bot, runner))
     if not TOKEN:

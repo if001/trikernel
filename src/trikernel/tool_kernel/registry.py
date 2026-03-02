@@ -16,9 +16,9 @@ from .tools.writing_tools import build_writing_tools
 def register_default_tools(kernel: ToolKernel, *, store: BaseStore) -> None:
     tools: Iterable[BaseTool] = (
         build_state_tools()
-        + build_system_tools()
-        + build_writing_tools()
-        + build_file_tools()
+        # + build_system_tools()
+        # + build_writing_tools()
+        # + build_file_tools()
         # + build_memory_tools(store)
     )
     for tool in tools:
