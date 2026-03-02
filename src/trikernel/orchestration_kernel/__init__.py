@@ -12,7 +12,7 @@ from .models import (
     RunnerContext,
     StepContext,
 )
-from .runners import LangGraphToolLoopRunner
+from .runners import RunnerAPI
 from .logging import get_logger
 
 __all__ = [
@@ -28,6 +28,6 @@ __all__ = [
     "LangGraphToolLoopRunner",
     "Budget",
     "StepContext",
-    "Runner",
+    "RunnerAPI",
     "get_logger",
 ]

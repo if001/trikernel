@@ -4,11 +4,13 @@ from typing import Any
 
 
 from langchain_core.messages import (
+    AIMessage,
     HumanMessage,
     SystemMessage,
 )
 
 from langchain.agents import create_agent
+from langchain_core.prompts import HumanMessagePromptTemplate
 from langgraph.runtime import Runtime
 from langchain.agents.middleware import (
     before_model,
@@ -22,6 +24,8 @@ from langchain.agents.middleware import (
     ClearToolUsesEdit,
     FilesystemFileSearchMiddleware,
 )
+
+from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 # from deepagents.middleware.filesystem import FilesystemMiddleware
 
 from ..logging import get_logger
@@ -36,7 +40,7 @@ from ...state_kernel.models import Task
 logger = get_logger(__name__)
 
 
-class AgentLoopRunner:
+class AgentLoopRunner(RunnerAPI):
     def __init__(
         self,
         recursion_limit: int = 20,
@@ -116,6 +120,13 @@ class AgentLoopRunner:
             if not msgs:
                 return None
 
+            only_history = []
+            for m in msgs:
+                if isinstance(m, HumanMessage):
+                    only_history.append(m)
+                if isinstance(m, AIMessage) and not m.tool_calls:
+                    only_history.append(m)
+
             query = getattr(msgs[-1], "content", "") or ""
             memory_kernel = ctx.state_api.memory_kernel(ctx.conversation_id)
             memory_text = ""
@@ -135,7 +146,7 @@ class AgentLoopRunner:
                 )
 
             system = build_agent_prompt(memory_text)
-            return {"messages": [SystemMessage(content=system), *msgs]}
+            return {"messages": [SystemMessage(content=system), *only_history]}
 
         selector = LLMToolSelectorMiddleware(
             model=ctx.llm_api,

@@ -35,7 +35,7 @@ from ...tool_kernel.runtime import register_runtime
 logger = get_logger(__name__)
 
 
-class LangGraphToolLoopRunner:
+class SimpleGraphToolLoopRunner(RunnerAPI):
     def __init__(
         self,
         model: Optional[ChatOllama] = None,

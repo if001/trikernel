@@ -173,7 +173,7 @@ class JsonFileArtifactStore:
 
     def read(self, artifact_id: str) -> Optional[Artifact]:
         with self._lock:
-            path = self._artifact_path(artifact_id)
+            path = self.artifact_path(artifact_id)
             if not path.exists():
                 return None
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -201,11 +201,11 @@ class JsonFileArtifactStore:
         with self._lock:
             return self._all_artifacts()
 
-    def _artifact_path(self, artifact_id: str) -> Path:
+    def artifact_path(self, artifact_id: str) -> Path:
         return self._artifact_dir / f"{artifact_id}.json"
 
     def _write_file(self, artifact: Artifact) -> None:
-        path = self._artifact_path(artifact.artifact_id)
+        path = self.artifact_path(artifact.artifact_id)
         path.write_text(
             json.dumps(artifact.to_full_dict(), ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -246,7 +246,7 @@ class JsonFileArtifactStore:
     def _read_by_id(self, artifact_id: Optional[str]) -> Optional[Artifact]:
         if not artifact_id:
             return None
-        path = self._artifact_path(str(artifact_id))
+        path = self.artifact_path(str(artifact_id))
         if not path.exists():
             return None
         raw = json.loads(path.read_text(encoding="utf-8"))

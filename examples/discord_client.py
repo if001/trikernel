@@ -7,21 +7,22 @@ from dotenv import load_dotenv
 from trikernel.orchestration_kernel.llm.gemini import newGeiminiClient
 from trikernel.orchestration_kernel.llm.ollama import newOllamaClient
 from trikernel.orchestration_kernel.runners.agent_loop import AgentLoopRunner
+from trikernel.orchestration_kernel.runners.deep_agent_loop import DeepAgentLoopRunner
 from trikernel.orchestration_kernel.runners.deep_tool_loop import DeepToolLoopRunner
 from ui.discord_client_ui import DiscordBot, get_intents
-from trikernel.orchestration_kernel import (
-    LangGraphToolLoopRunner,
-    get_logger,
-)
+from trikernel.orchestration_kernel import get_logger, RunnerAPI
 from trikernel.execution.session import TrikernelSession
 from trikernel.state_kernel.kernel import StateKernel
 from trikernel.state_kernel.memory_store import build_memory_store
 from trikernel.state_kernel.message_store import build_message_store
 from trikernel.tool_kernel.kernel import ToolKernel
 from trikernel.tool_kernel.ollama import ToolOllamaLLM
-from trikernel.tool_kernel.registry import register_default_tools
+from trikernel.tool_kernel.registry import (
+    register_deep_agent_tools,
+    register_default_tools,
+)
 
-from tools.web_tools import build_web_tools
+from tools.web_tools import build_web_tools, build_web_tools_for_deep_agent
 
 logger = get_logger("discord_client")
 load_dotenv()
@@ -33,7 +34,7 @@ DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", -1))
 DISCORD_READ_CHANNEL_ID = int(os.getenv("DISCORD_READ_CHANNEL_ID", -1))
 
 
-async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
+async def runner_loop(ui: DiscordBot, runner: RunnerAPI) -> None:
     logger.info("runner_loop")
 
     llm = newOllamaClient()
@@ -47,6 +48,11 @@ async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
         register_default_tools(tool_kernel, store=store)
         for tool in build_web_tools():
             tool_kernel.tool_register(tool)
+
+        # register_deep_agent_tools(tool_kernel, store=store)
+        # for tool in build_web_tools_for_deep_agent():
+        #     tool_kernel.tool_register(tool)
+
         state.set_memory_store(store)
         # tool_kernel.debug()
 
@@ -115,9 +121,10 @@ async def runner_loop(ui: DiscordBot, runner: LangGraphToolLoopRunner) -> None:
 
 
 def main() -> None:
+    # runner = SimpleGraphToolLoopRunner()
     runner = DeepToolLoopRunner()
-    # runner = LangGraphToolLoopRunner()
-    runner = AgentLoopRunner()
+    # runner = AgentLoopRunner()
+    # runner = DeepAgentLoopRunner()
     intents = get_intents()
     ui = DiscordBot(intents=intents, runner_loop=lambda bot: runner_loop(bot, runner))
     if not TOKEN:

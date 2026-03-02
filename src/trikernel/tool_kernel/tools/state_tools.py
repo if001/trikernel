@@ -253,7 +253,9 @@ def artifact_write(
     artifact_id = state_api.artifact_write(
         payload.media_type, payload.body, payload.metadata
     )
-    return {"artifact_id": artifact_id}
+
+
+    return {"artifact_id": artifact_id, "content_path": }
 
 
 def artifact_read(
@@ -388,44 +390,44 @@ def build_state_tools() -> List[BaseTool]:
         #     name="task.fail",
         #     description="Mark a task as failed.",
         # ),
-        StructuredTool.from_function(
-            artifact_write,
-            name="artifact.write",
-            description=(
-                "Persist an artifact (text body + media_type + metadata) for later retrieval via semantic search and reuse across steps/workers.\n"
-                "Use to store fetched web content, intermediate results, or user-requested temporary notes."
-            ),
-        ),
-        StructuredTool.from_function(
-            artifact_read,
-            name="artifact.read",
-            description=(
-                "Read a stored artifact by id (returns full body).\n"
-                "Use when you already know the exact artifact to reuse."
-            ),
-        ),
-        StructuredTool.from_function(
-            artifact_extract,
-            name="artifact.extract",
-            description=(
-                "Run LLM-based extraction over an artifact specified by id using provided instructions (e.g., pull facts, make bullet notes, extract entities).\n"
-                "Use after artifact.search when the body is long and you only need specific information; prefer this over artifact.read when possible."
-            ),
-        ),
-        StructuredTool.from_function(
-            artifact_search,
-            name="artifact.search",
-            description=(
-                "Semantic search over stored artifacts using an embedding query against artifact bodies.\n"
-                "Returns artifact IDs only (and optionally scores if available).\n"
-                "Use to locate relevant artifacts, then call artifact.read to fetch the body or artifact.extract to pull targeted information."
-            ),
-        ),
-        StructuredTool.from_function(
-            artifact_list,
-            name="artifact.list",
-            description="List stored artifacts for inspection/debugging. Prefer artifact.search for finding relevant artifacts by meaning.",
-        ),
+        # StructuredTool.from_function(
+        #     artifact_write,
+        #     name="artifact.write",
+        #     description=(
+        #         "Persist an artifact (text body + media_type + metadata) for later retrieval via semantic search and reuse across steps/workers.\n"
+        #         "Use to store fetched web content, intermediate results, or user-requested temporary notes."
+        #     ),
+        # ),
+        # StructuredTool.from_function(
+        #     artifact_read,
+        #     name="artifact.read",
+        #     description=(
+        #         "Read a stored artifact by id (returns full body).\n"
+        #         "Use when you already know the exact artifact to reuse."
+        #     ),
+        # ),
+        # StructuredTool.from_function(
+        #     artifact_extract,
+        #     name="artifact.extract",
+        #     description=(
+        #         "Run LLM-based extraction over an artifact specified by id using provided instructions (e.g., pull facts, make bullet notes, extract entities).\n"
+        #         "Use after artifact.search when the body is long and you only need specific information; prefer this over artifact.read when possible."
+        #     ),
+        # ),
+        # StructuredTool.from_function(
+        #     artifact_search,
+        #     name="artifact.search",
+        #     description=(
+        #         "Semantic search over stored artifacts using an embedding query against artifact bodies.\n"
+        #         "Returns artifact IDs only (and optionally scores if available).\n"
+        #         "Use to locate relevant artifacts, then call artifact.read to fetch the body or artifact.extract to pull targeted information."
+        #     ),
+        # ),
+        # StructuredTool.from_function(
+        #     artifact_list,
+        #     name="artifact.list",
+        #     description="List stored artifacts for inspection/debugging. Prefer artifact.search for finding relevant artifacts by meaning.",
+        # ),
     ]
 
 

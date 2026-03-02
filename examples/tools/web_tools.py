@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from langchain_core.tools import BaseTool, StructuredTool
@@ -13,6 +14,7 @@ from langgraph.prebuilt import InjectedState
 from pydantic import BaseModel, Field
 from typing_extensions import Annotated
 
+from trikernel.state_kernel.protocols import StateKernelAPI
 from trikernel.tool_kernel.config import load_ollama_config
 from trikernel.tool_kernel.runtime import get_state_api
 
@@ -93,7 +95,8 @@ def web_page_ref(
         json.dumps(response, ensure_ascii=False),
         {"source": "web.page", "url": payload.url},
     )
-    return {"artifact_id": artifact_id}
+    path = state_api.get_artifact_path(artifact_id)
+    return {"artifact_id": artifact_id, "content_path": path}
 
 
 def _build_query_messages(
@@ -137,7 +140,7 @@ def _history_from_state(state: dict, limit: int = 6) -> List[Dict[str, str]]:
     return messages
 
 
-def _require_state_api(state: dict) -> Any:
+def _require_state_api(state: dict) -> StateKernelAPI:
     state_api = state.get("state_api") if isinstance(state, dict) else None
     if state_api is None and isinstance(state, dict):
         runtime_id = state.get("runtime_id")
@@ -176,3 +179,122 @@ def build_web_tools() -> List[BaseTool]:
             ),
         ),
     ]
+
+
+from langchain_core.tools import StructuredTool, InjectedToolArg
+from langchain.tools import ToolRuntime
+
+
+def _slugify(s: str, max_len: int = 60) -> str:
+    s = re.sub(r"[^a-zA-Z0-9_-]+", "-", s).strip("-").lower()
+    return s[:max_len] if s else "page"
+
+
+def web_list_and_store(
+    q: str,
+    k: Optional[int],
+    tool_runtime: Annotated[ToolRuntime, InjectedToolArg],
+) -> Dict[str, Any]:
+    """
+    args:
+    q: search query(required). このツールを使う前に、web.queryでqueryを作成し、このツールを呼び出してください。
+    k: 何件の検索結果を取得するか. default 5.
+    """
+    import datetime as dt
+    from urllib.parse import urlparse
+
+    if not k:
+        k = 5
+
+    config = load_web_client_config()
+    payload_dict = {"q": q, "k": k}
+    result = _post_json(f"{config.base_url}/list", payload_dict)
+
+    result = _post_json(f"{config.base_url}/page", payload_dict)
+    if tool_runtime.store is None:
+        raise RuntimeError(
+            "tool_runtime.store is None. "
+            "StoreBackend を使うなら create_deep_agent(..., store=...) と "
+            "CompositeBackend で /memories/ を StoreBackend にルーティングしてください。"
+        )
+    base = _slugify(q)
+    today = dt.date.today().strftime("%Y%m%d")
+    vpath = f"/memories/page_overview/{today}_{base}.md"
+    tool_runtime.store.put(
+        namespace=("filesystem",),
+        key=vpath,
+        value=result,
+    )
+
+    return {"saved_path": vpath, "bytes": len(result)}
+
+
+def fetch_webpage_and_store(
+    url: str,
+    tool_runtime: Annotated[ToolRuntime, InjectedToolArg],
+) -> dict:
+    """
+    Fetch a web page and store it into the deepagents virtual filesystem under /memories/.
+    Returns the saved virtual path.
+    """
+    import datetime as dt
+    from urllib.parse import urlparse
+
+    config = load_web_client_config()
+    payload_dict = {"urls": url}
+    result = _post_json(f"{config.base_url}/page", payload_dict)
+    if tool_runtime.store is None:
+        raise RuntimeError(
+            "tool_runtime.store is None. "
+            "StoreBackend を使うなら create_deep_agent(..., store=...) と "
+            "CompositeBackend で /memories/ を StoreBackend にルーティングしてください。"
+        )
+    parsed = urlparse(url)
+    base = _slugify(parsed.netloc + parsed.path)
+    today = dt.date.today().strftime("%Y%m%d")
+    vpath = f"/memories/pages/{today}_{base}.md"
+    tool_runtime.store.put(
+        namespace=("filesystem",),
+        key=vpath,
+        value=result,
+    )
+
+    return {"saved_path": vpath, "bytes": len(result)}
+
+
+def build_web_tools_for_deep_agent() -> List[BaseTool]:
+    return [
+        StructuredTool.from_function(
+            web_query,
+            name="web.query",
+            description="Generate a focused web search query from the user message and current context. Use before web.list.",
+            args_schema=WebQueryArgs,
+        ),
+        StructuredTool.from_function(
+            web_list_and_store,
+            name="web.list",
+            description="Fetch top-k web search results (snippets/urls). Use to choose candidate pages for reading.",
+        ),
+        StructuredTool.from_function(
+            fetch_webpage_and_store,
+            name="web.page_and_store",
+            description="Fetch a web page and store it under /memories/pages/ as a markdown file. Returns saved_path.",
+        ),
+    ]
+
+
+@dataclass
+class Hoge:
+    name: str
+    age: int
+
+
+if __name__ == "__main__":
+    config = load_web_client_config()
+    payload_dict = {
+        "urls": "https://docs.langchain.com/oss/python/langchain/middleware/custom"
+    }
+    base = f"{config.base_url}/page"
+    print("base", base)
+    result = _post_json(base, payload_dict)
+    print(result)

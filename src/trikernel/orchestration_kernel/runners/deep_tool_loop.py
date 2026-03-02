@@ -11,7 +11,7 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
-    trim_messages,
+    ToolMessage,
 )
 from langchain_core.tools import BaseTool
 from langgraph.errors import GraphRecursionError
@@ -137,7 +137,7 @@ class DeepToolLoopRunner(RunnerAPI):
                         f"{followup_prompt}\n\nMemory context:\n{memory_context_text}\n"
                     )
                 response = runner_context.llm_api.invoke(
-                    list(_trim_state_messages(messages))
+                    list(_recent_user_messages(messages, last_n=3))
                     + [HumanMessage(content=followup_prompt)]
                 )
                 messages.append(response)
@@ -237,7 +237,7 @@ def _build_graph(
         return {"phase": phase, "phase_goal": goal}
 
     def discover(state):
-        messages = _trim_state_messages(state["messages"])
+        messages = _recent_user_messages(state["messages"], last_n=3)
         phase_goal = state["phase_goal"]
         memory_context_text = state.get("memory_context_text", "")
         if state.get("phase") == "FINISH":
@@ -293,7 +293,7 @@ def _build_graph(
                 memory_context_text=memory_context_text,
             )
 
-        messages = _trim_state_messages(state["messages"])
+        messages = _recent_user_messages(state["messages"], last_n=3)
         if state.get("phase") == "FINISH":
             response = model.invoke(
                 [SystemMessage(content=system)]
@@ -341,7 +341,7 @@ def _build_graph(
 
     def followup(state: ToolLoopState):
         memory_context_text = state.get("memory_context_text", "")
-        messages = _trim_state_messages(state["messages"])
+        messages = _recent_user_messages(state["messages"], last_n=3)
         if task_type == "user_request":
             system, prompt = build_tool_loop_followup_prompt(
                 user_message=user_message,
@@ -437,42 +437,40 @@ def _last_ai_message(messages: Sequence[BaseMessage]) -> Optional[AIMessage]:
     return None
 
 
-def _token_counter(messages: Sequence[BaseMessage]) -> int:
-    total = 0
-    for message in messages:
-        total += len(str(message.content))
-    return total
-
-
 def _filter_tools(tools: Sequence[BaseTool], tool_set: Set[str]) -> List[BaseTool]:
     if not tool_set:
         return []
     return [tool for tool in tools if tool.name in tool_set]
 
 
-def keep_last_n_user_turns(
-    messages: Sequence[BaseMessage], n_turns: int
+def _recent_user_messages(
+    messages: Sequence[BaseMessage], last_n: int
 ) -> Sequence[BaseMessage]:
-    _messages = messages[:-1]  ## 一番最後は今回の入力なので取り除く
-    count = 0
-    start_idx = 0
-    for i in range(len(_messages) - 1, -1, -1):
-        if isinstance(_messages[i], HumanMessage):
-            count += 1
-            if count >= n_turns:
-                start_idx = i
-                break
-    return _messages[start_idx:] if count >= n_turns else _messages
-
-
-def _trim_state_messages(messages: Sequence[BaseMessage]) -> Sequence[BaseMessage]:
-    trimed = keep_last_n_user_turns(messages, 2)
-    return trim_messages(
-        trimed,
-        max_tokens=3000,
-        strategy="last",
-        token_counter=_token_counter,
-    )
+    if last_n <= 0:
+        return []
+    selected: List[BaseMessage] = []
+    seen_ai = False
+    for message in reversed(messages):
+        if isinstance(message, SystemMessage):
+            continue
+        if isinstance(message, ToolMessage):
+            continue
+        if isinstance(message, AIMessage):
+            if message.tool_calls:
+                continue
+            if not seen_ai:
+                selected.append(message)
+                seen_ai = True
+            continue
+        if isinstance(message, HumanMessage):
+            selected.append(message)
+            if seen_ai:
+                last_n -= 1
+                if last_n <= 0:
+                    break
+                seen_ai = False
+            continue
+    return list(reversed(selected))
 
 
 def _budget_exceeded_text() -> str:
@@ -613,7 +611,6 @@ def _plan_with_llm(
 
 
 def _observe_with_llm(model: BaseChatModel, state: ToolLoopState) -> _ObservationResult:
-    # messages = _trim_state_messages(state["messages"])
     _ctx: ToolStepContext = state["tool_step_context"]
     tool_result = _last_tool_result(state["messages"])
 

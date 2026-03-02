@@ -611,8 +611,10 @@ tool_result: {tool_result}"""
     return system, prompt
 
 
-def build_agent_prompt(memory_text: str) -> str:
+def build_agent_prompt(memory_text: Optional[str] = None) -> str:
     work_space_dir = os.environ.get("work_space_dir")
+
+    memory_block = f"### Memories\n{memory_text}" if memory_text else ""
     system = (
         "あなたは誠実で専門的なアシスタントです。\n"
         "これまでのツール実行結果に基づき、ユーザーの質問に対する最終的な回答を作成してください。\n\n"
@@ -634,8 +636,7 @@ def build_agent_prompt(memory_text: str) -> str:
         "- [重要] 人格/性格を必ず守り出力を作成してください。\n\n"
         "### 人格/性格\n"
         f"{PERSONA}\n\n"
-        "### Memories\n"
-        f"{memory_text}"
+        f"{memory_block}"
     )
 
     return system
