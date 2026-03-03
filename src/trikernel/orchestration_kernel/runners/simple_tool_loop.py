@@ -1,25 +1,38 @@
 from __future__ import annotations
 
-from typing import Annotated, List, Optional, Sequence, Set, TypedDict, cast, Any
+from typing import List, Optional, Sequence, Set, cast, Any
 
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
     HumanMessage,
     SystemMessage,
-    trim_messages,
 )
 from langchain_core.tools import BaseTool
 from langchain_ollama import ChatOllama
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, StateGraph
-from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
+
+from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 
 from ..llm.config import load_ollama_config
 from ..logging import get_logger
 from ..models import Budget, RunResult, RunnerContext, SimpleStepContext
-from ..payloads import extract_llm_input
+from ..payloads import extract_llm_input, extract_user_message
+from ._shared import (
+    SimpleToolLoopState,
+    build_memory_context,
+    budget_exceeded_text,
+    budget_limit,
+    filter_tools,
+    handle_tool_error,
+    last_ai_message,
+    load_checkpoint_messages,
+    message_content_text,
+    recent_user_messages,
+    tools_text,
+)
 from .prompts import (
     build_discover_tools_simple_prompt,
     build_tool_loop_followup_prompt,
@@ -46,7 +59,7 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
 
     def run(self, task: Task, runner_context: RunnerContext) -> RunResult:
         try:
-            user_message = _extract_user_message(task)
+            user_message = extract_user_message(extract_llm_input(task.payload or {}))
             if not user_message:
                 return RunResult(
                     user_output=None,
@@ -56,18 +69,18 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
                     stream_chunks=[],
                 )
             tools = runner_context.tool_api.tool_structured_list()
-            tools_text = _tools_text(runner_context)
+            tool_list_text = tools_text(runner_context)
             step_context = _initial_step_context(task)
             graph = _build_graph(
                 self._model or _default_model(),
                 tools,
                 user_message,
-                tools_text,
+                tool_list_text,
                 task.task_type,
                 runner_context,
                 runner_context.store,
             )
-            limit = _budget_limit(task, self._recursion_limit)
+            limit = budget_limit(task, self._recursion_limit)
             register_runtime(
                 runner_context.conversation_id,
                 runner_context.state_api,
@@ -94,8 +107,8 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
                     config=config,
                     # debug=True,
                 )
-                last_message = _last_ai_message(result.get("messages", []))
-                output = _message_content_text(last_message) if last_message else ""
+                last_message = last_ai_message(result.get("messages", []))
+                output = message_content_text(last_message) if last_message else ""
                 return RunResult(
                     user_output=output,
                     task_state="done",
@@ -105,36 +118,37 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
                 )
             except GraphRecursionError:
                 logger.warning("langgraph recursion limit hit: %s", task.task_id)
-                messages = _load_checkpoint_messages(
+                messages = load_checkpoint_messages(
                     runner_context.message_store.checkpointer,
                     config,
                 )
                 if not messages:
                     return RunResult(
-                        user_output=_budget_exceeded_text(),
+                        user_output=budget_exceeded_text(),
                         task_state="done",
                         artifact_refs=[],
                         error=None,
                         stream_chunks=[],
                     )
                 messages = list(messages)
-                memory_context_text = _build_memory_context(
-                    runner_context.state_api,
+                memory_context_text = build_memory_context(
+                    runner_context,
                     runner_context.conversation_id,
                     user_message,
+                    log_details=True,
                 )
-                messages.append(AIMessage(content=_budget_exceeded_text()))
+                messages.append(AIMessage(content=budget_exceeded_text()))
                 followup_prompt = "ここまでのツール結果を使い、途中であることを明記して回答してください。"
                 if memory_context_text:
                     followup_prompt = (
                         f"{followup_prompt}\n\nMemory context:\n{memory_context_text}\n"
                     )
                 response = (self._model or _default_model()).invoke(
-                    list(_trim_state_messages(messages))
+                    list(recent_user_messages(messages, last_n=3))
                     + [HumanMessage(content=followup_prompt)]
                 )
                 messages.append(response)
-                output = _message_content_text(response)
+                output = message_content_text(response)
                 return RunResult(
                     user_output=output,
                     task_state="done",
@@ -159,25 +173,6 @@ def _default_model() -> ChatOllama:
     return ChatOllama(model=model, base_url=config.base_url)
 
 
-def _extract_user_message(task: Task) -> str:
-    payload = task.payload or {}
-    llm_input = extract_llm_input(payload)
-    if llm_input.get("message") is not None:
-        return str(llm_input.get("message"))
-    if llm_input.get("prompt") is not None:
-        return str(llm_input.get("prompt"))
-    if llm_input.get("user_message") is not None:
-        return str(llm_input.get("user_message"))
-    return ""
-
-
-def _tools_text(runner_context: RunnerContext) -> str:
-    tools_text = "tool_list:\n"
-    for v in runner_context.tool_api.tool_descriptions():
-        tools_text += f"{v['tool_name']}: {v['description']}\n"
-    return tools_text
-
-
 def _initial_step_context(task: Task) -> SimpleStepContext:
     payload = task.payload or {}
     budget_payload = payload.get("budget") or {}
@@ -193,16 +188,6 @@ def _initial_step_context(task: Task) -> SimpleStepContext:
     )
 
 
-class ToolLoopState(TypedDict):
-    messages: Annotated[List[BaseMessage], add_messages]
-    tool_set: Set[str]
-    step_context: SimpleStepContext
-    stop: bool
-    runtime_id: str
-    task_id: str
-    memory_context_text: str
-
-
 def _build_graph(
     model: ChatOllama,
     tools: Sequence[BaseTool],
@@ -212,10 +197,10 @@ def _build_graph(
     runner_context: RunnerContext,
     store,
 ):
-    graph = StateGraph(ToolLoopState)
+    graph = StateGraph(SimpleToolLoopState)
 
-    def discover(state):
-        messages = _trim_state_messages(state["messages"])
+    def discover(state: SimpleToolLoopState):
+        messages = recent_user_messages(state["messages"], last_n=3)
         memory_context_text = state.get("memory_context_text", "")
         system, prompt = build_discover_tools_simple_prompt(
             user_input=user_message,
@@ -236,7 +221,7 @@ def _build_graph(
     def agent(state):
         if state["step_context"].budget.remaining_steps <= 0:
             return {
-                "messages": [AIMessage(content=_budget_exceeded_text())],
+                "messages": [AIMessage(content=budget_exceeded_text())],
                 "stop": True,
             }
 
@@ -260,10 +245,10 @@ def _build_graph(
                 memory_context_text=memory_context_text,
             )
 
-        allowed = _filter_tools(tools, state["tool_set"])
+        allowed = filter_tools(tools, state["tool_set"])
         _tool_name = [v.name for v in allowed]
         logger.info(f"allowed tools: {_tool_name}")
-        messages = _trim_state_messages(state["messages"])
+        messages = recent_user_messages(state["messages"], last_n=3)
         response = model.bind_tools(allowed).invoke(
             [SystemMessage(content=system)]
             + list(messages)
@@ -291,19 +276,20 @@ def _build_graph(
             "step_context": state["step_context"],
         }
 
-    tool_node = ToolNode(list(tools), handle_tool_errors=_handle_tool_error)
+    tool_node = ToolNode(list(tools), handle_tool_errors=handle_tool_error)
 
-    def build_memory(state: ToolLoopState):
-        memory_context_text = _build_memory_context(
-            runner_context.state_api,
+    def build_memory(state: SimpleToolLoopState):
+        memory_context_text = build_memory_context(
+            runner_context,
             runner_context.conversation_id,
             user_message,
+            log_details=True,
         )
         return {"memory_context_text": memory_context_text}
 
-    def followup(state: ToolLoopState):
+    def followup(state: SimpleToolLoopState):
         memory_context_text = state.get("memory_context_text", "")
-        messages = _trim_state_messages(state["messages"])
+        messages = recent_user_messages(state["messages"], last_n=3)
         if task_type == "user_request":
             system, prompt = build_tool_loop_followup_prompt(
                 user_message=user_message,
@@ -340,7 +326,7 @@ def _build_graph(
     graph.add_node("tools", tool_node)
     graph.add_node("followup", followup)
 
-    def route(state: ToolLoopState):
+    def route(state: SimpleToolLoopState):
         if state.get("stop"):
             return END
         decision = tools_condition(cast(dict[str, Any], state))
@@ -362,117 +348,4 @@ def _build_graph(
     return graph.compile(
         checkpointer=runner_context.message_store.checkpointer,
         store=store,
-    )
-
-
-def _budget_limit(task: Task, default_limit: int) -> int:
-    payload = task.payload or {}
-    budget = payload.get("budget") or {}
-    remaining = budget.get("remaining_steps")
-    try:
-        if remaining is not None:
-            steps = max(0, int(remaining))
-            return max(default_limit, steps * 3 + 3)
-    except (TypeError, ValueError):
-        return default_limit
-    return default_limit
-
-
-def _last_ai_message(messages: Sequence[BaseMessage]) -> Optional[AIMessage]:
-    for message in reversed(messages):
-        if isinstance(message, AIMessage):
-            return message
-    return None
-
-
-def _token_counter(messages: Sequence[BaseMessage]) -> int:
-    total = 0
-    for message in messages:
-        total += len(str(message.content))
-    return total
-
-
-def _filter_tools(tools: Sequence[BaseTool], tool_set: Set[str]) -> List[BaseTool]:
-    if not tool_set:
-        return []
-    return [tool for tool in tools if tool.name in tool_set]
-
-
-def keep_last_n_user_turns(
-    messages: Sequence[BaseMessage], n_turns: int
-) -> Sequence[BaseMessage]:
-    _messages = messages[:-1]  ## 一番最後は今回の入力なので取り除く
-    count = 0
-    start_idx = 0
-    for i in range(len(_messages) - 1, -1, -1):
-        if isinstance(_messages[i], HumanMessage):
-            count += 1
-            if count >= n_turns:
-                start_idx = i
-                break
-    return _messages[start_idx:] if count >= n_turns else _messages
-
-
-def _trim_state_messages(messages: Sequence[BaseMessage]) -> Sequence[BaseMessage]:
-    trimed = keep_last_n_user_turns(messages, 2)
-    return trim_messages(
-        trimed,
-        max_tokens=3000,
-        strategy="last",
-        token_counter=_token_counter,
-    )
-
-
-def _budget_exceeded_text() -> str:
-    return (
-        "上限に達したためtool使用をストップしました。"
-        "ここまでのtoolの結果を利用し、調査が足りていない旨を含めて回答してください。"
-    )
-
-
-def _handle_tool_error(exc: Exception) -> str:
-    logger.error("tool execution error: %s", exc, exc_info=True)
-    return f"TOOL_ERROR: {exc}"
-
-
-def _message_content_text(message: AIMessage) -> str:
-    content = message.content
-    if isinstance(content, str):
-        return content
-    return str(content)
-
-
-def _load_checkpoint_messages(checkpointer, config: dict) -> Sequence[BaseMessage]:
-    try:
-        checkpoint_tuple = checkpointer.get_tuple(config)
-    except Exception:
-        logger.error("failed to load checkpoint messages", exc_info=True)
-        return []
-    if not checkpoint_tuple:
-        return []
-    checkpoint = checkpoint_tuple.checkpoint
-    channel_values = checkpoint.get("channel_values", {})
-    messages = channel_values.get("messages")
-    if isinstance(messages, list):
-        return messages
-    return []
-
-
-def _build_memory_context(
-    state_api,
-    conversation_id: str,
-    query: str,
-) -> str:
-    memory_kernel = state_api.memory_kernel(conversation_id)
-    if memory_kernel is None:
-        return ""
-    profile_text = memory_kernel.get_profile_context(limit=1)
-    logger.info(f"profile_text: {profile_text}")
-    semantic_text = memory_kernel.get_semantic_context(query, limit=1)
-    logger.info(f"semantic_text: {semantic_text}")
-    episodic_text = memory_kernel.get_episodic_context(query, limit=1)
-    logger.info(f"episodic_text: {episodic_text}")
-
-    return "\n".join(
-        part for part in (profile_text, semantic_text, episodic_text) if part
     )

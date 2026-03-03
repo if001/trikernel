@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Annotated, List, Optional, Sequence, Set, TypedDict, cast, Literal
+from typing import List, Sequence, Set, cast, Literal
 from langchain.chat_models import BaseChatModel
 from pydantic import BaseModel, Field
 
@@ -11,18 +11,31 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
-    ToolMessage,
 )
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.tools import BaseTool
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, StateGraph
-from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
+from langmem.short_term import SummarizationNode, RunningSummary
 
 from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 from ..logging import get_logger
 from ..models import Budget, RunResult, RunnerContext, ToolStepContext
-from ..payloads import extract_llm_input
+from ..payloads import extract_llm_input, extract_user_message
+from ._shared import (
+    DeepToolLoopState,
+    build_memory_context,
+    budget_exceeded_text,
+    budget_limit,
+    filter_tools,
+    handle_tool_error,
+    last_ai_message,
+    load_checkpoint_messages,
+    message_content_text,
+    recent_user_messages,
+    tools_text,
+)
 from .prompts import (
     build_discover_tools_deep_prompt,
     build_observe_prompt,
@@ -50,7 +63,7 @@ class DeepToolLoopRunner(RunnerAPI):
 
     def run(self, task: Task, runner_context: RunnerContext) -> RunResult:
         try:
-            user_message = _extract_user_message(task)
+            user_message = extract_user_message(extract_llm_input(task.payload or {}))
             if not user_message:
                 return RunResult(
                     user_output=None,
@@ -60,19 +73,19 @@ class DeepToolLoopRunner(RunnerAPI):
                     stream_chunks=[],
                 )
             tools = runner_context.tool_api.tool_structured_list()
-            tools_text = _tools_text(runner_context)
+            tool_list_text = tools_text(runner_context)
             step_context = _initial_step_context(task)
             graph = _build_graph(
                 runner_context.large_llm_api,
                 runner_context.llm_api,
                 tools,
                 user_message,
-                tools_text,
+                tool_list_text,
                 task.task_type,
                 runner_context,
                 runner_context.store,
             )
-            limit = _budget_limit(task, self._recursion_limit)
+            limit = budget_limit(task, self._recursion_limit)
             register_runtime(
                 runner_context.conversation_id,
                 runner_context.state_api,
@@ -89,6 +102,7 @@ class DeepToolLoopRunner(RunnerAPI):
                 result = graph.invoke(
                     {
                         "messages": [HumanMessage(content=user_message)],
+                        "summarized_messages": [],
                         "tool_set": set(),
                         "tool_step_context": step_context,
                         "stop": False,
@@ -101,8 +115,8 @@ class DeepToolLoopRunner(RunnerAPI):
                     config=config,
                     # debug=True,
                 )
-                last_message = _last_ai_message(result.get("messages", []))
-                output = _message_content_text(last_message) if last_message else ""
+                last_message = last_ai_message(result.get("messages", []))
+                output = message_content_text(last_message) if last_message else ""
                 return RunResult(
                     user_output=output,
                     task_state="done",
@@ -112,36 +126,37 @@ class DeepToolLoopRunner(RunnerAPI):
                 )
             except GraphRecursionError:
                 logger.warning("langgraph recursion limit hit: %s", task.task_id)
-                messages = _load_checkpoint_messages(
+                messages = load_checkpoint_messages(
                     runner_context.message_store.checkpointer,
                     config,
                 )
                 if not messages:
                     return RunResult(
-                        user_output=_budget_exceeded_text(),
+                        user_output=budget_exceeded_text(),
                         task_state="done",
                         artifact_refs=[],
                         error=None,
                         stream_chunks=[],
                     )
                 messages = list(messages)
-                memory_context_text = _build_memory_context(
-                    runner_context.state_api,
+                memory_context_text = build_memory_context(
+                    runner_context,
                     runner_context.conversation_id,
                     user_message,
+                    log_missing=True,
                 )
-                messages.append(AIMessage(content=_budget_exceeded_text()))
+                messages.append(AIMessage(content=budget_exceeded_text()))
                 followup_prompt = "ここまでのツール結果を使い、途中であることを明記して回答してください。"
                 if memory_context_text:
                     followup_prompt = (
                         f"{followup_prompt}\n\nMemory context:\n{memory_context_text}\n"
                     )
                 response = runner_context.llm_api.invoke(
-                    list(_recent_user_messages(messages, last_n=3))
+                    list(recent_user_messages(messages, last_n=3))
                     + [HumanMessage(content=followup_prompt)]
                 )
                 messages.append(response)
-                output = _message_content_text(response)
+                output = message_content_text(response)
                 return RunResult(
                     user_output=output,
                     task_state="done",
@@ -160,25 +175,6 @@ class DeepToolLoopRunner(RunnerAPI):
             )
 
 
-def _extract_user_message(task: Task) -> str:
-    payload = task.payload or {}
-    llm_input = extract_llm_input(payload)
-    if llm_input.get("message") is not None:
-        return str(llm_input.get("message"))
-    if llm_input.get("prompt") is not None:
-        return str(llm_input.get("prompt"))
-    if llm_input.get("user_message") is not None:
-        return str(llm_input.get("user_message"))
-    return ""
-
-
-def _tools_text(runner_context: RunnerContext) -> str:
-    tools_text = "tool_list:\n"
-    for v in runner_context.tool_api.tool_descriptions():
-        tools_text += f"{v['tool_name']}: {v['description']}\n"
-    return tools_text
-
-
 def _initial_step_context(task: Task) -> ToolStepContext:
     payload = task.payload or {}
     budget_payload = payload.get("budget") or {}
@@ -191,18 +187,6 @@ def _initial_step_context(task: Task) -> ToolStepContext:
     )
 
 
-class ToolLoopState(TypedDict):
-    messages: Annotated[List[BaseMessage], add_messages]
-    tool_set: Set[str]
-    tool_step_context: ToolStepContext
-    stop: bool
-    runtime_id: str
-    task_id: str
-    memory_context_text: str
-    phase: str
-    phase_goal: str
-
-
 def _build_graph(
     large_model: BaseChatModel,
     model: BaseChatModel,
@@ -213,17 +197,18 @@ def _build_graph(
     runner_context: RunnerContext,
     store,
 ):
-    graph = StateGraph(ToolLoopState)
+    graph = StateGraph(DeepToolLoopState)
 
-    def build_memory(state: ToolLoopState):
-        memory_context_text = _build_memory_context(
-            runner_context.state_api,
+    def build_memory(state: DeepToolLoopState):
+        memory_context_text = build_memory_context(
+            runner_context,
             runner_context.conversation_id,
             user_message,
+            log_missing=True,
         )
         return {"memory_context_text": memory_context_text}
 
-    def plan(state: ToolLoopState):
+    def plan(state: DeepToolLoopState):
         phase, goal = _plan_with_llm(
             model,
             state,
@@ -237,7 +222,7 @@ def _build_graph(
         return {"phase": phase, "phase_goal": goal}
 
     def discover(state):
-        messages = _recent_user_messages(state["messages"], last_n=3)
+        messages = recent_user_messages(state["messages"], last_n=3)
         phase_goal = state["phase_goal"]
         memory_context_text = state.get("memory_context_text", "")
         if state.get("phase") == "FINISH":
@@ -266,10 +251,10 @@ def _build_graph(
         logger.info(f"selected: {selected}")
         return {"tool_set": selected}
 
-    def act(state: ToolLoopState):
+    def act(state: DeepToolLoopState):
         if state["tool_step_context"].budget.remaining_steps <= 0:
             return {
-                "messages": [AIMessage(content=_budget_exceeded_text())],
+                "messages": [AIMessage(content=budget_exceeded_text())],
                 "stop": True,
             }
 
@@ -293,23 +278,31 @@ def _build_graph(
                 memory_context_text=memory_context_text,
             )
 
-        messages = _recent_user_messages(state["messages"], last_n=3)
+        messages = recent_user_messages(state["messages"], last_n=2)
         if state.get("phase") == "FINISH":
-            response = model.invoke(
+            response = large_model.invoke(
                 [SystemMessage(content=system)]
                 + list(messages)
                 + [HumanMessage(content=prompt)]
             )
         else:
             # logger.info(f"debug tools: {tools}")
-            allowed = _filter_tools(tools, state["tool_set"])
+            allowed = filter_tools(tools, state["tool_set"])
             _allowed_name = [v.name for v in allowed]
-            logger.info(f"allowed: {_allowed_name}")
-            response = large_model.bind_tools(allowed).invoke(
+            logger.info(f"allowed_name: {_allowed_name}")
+            logger.info(f"allowed: {allowed}")
+            response = large_model.bind_tools(allowed, tool_choice="required").invoke(
                 [SystemMessage(content=system)]
                 + list(messages)
                 + [HumanMessage(content=prompt)]
             )
+            _in = (
+                [SystemMessage(content=system)]
+                + list(messages)
+                + [HumanMessage(content=prompt)]
+            )
+            logger.info(f"act prompt: {_in}")
+
         state["tool_step_context"].budget.spent_steps += 1
         state["tool_step_context"].budget.remaining_steps -= 1
         if response.content == "" and not response.tool_calls:
@@ -322,15 +315,15 @@ def _build_graph(
                 f"may be token over... in: {in_token_cnt}, out: {out_token_cnt}, total: {total_token}"
             )
         logger.info(f"act response: {response}")
-        # time.sleep(3)
+        time.sleep(5)
         return {
             "messages": [response],
             "tool_step_context": state["tool_step_context"],
         }
 
-    tool_node = ToolNode(list(tools), handle_tool_errors=_handle_tool_error)
+    tool_node = ToolNode(list(tools), handle_tool_errors=handle_tool_error)
 
-    def observe(state: ToolLoopState):
+    def observe(state: DeepToolLoopState):
         observation = _observe_with_llm(model, state)
         state["tool_step_context"].last_observation = observation.last_observation
         state["tool_step_context"].error_summary = observation.error_summary
@@ -339,9 +332,9 @@ def _build_graph(
         # time.sleep(3)
         return {"tool_step_context": state["tool_step_context"]}
 
-    def followup(state: ToolLoopState):
+    def followup(state: DeepToolLoopState):
         memory_context_text = state.get("memory_context_text", "")
-        messages = _recent_user_messages(state["messages"], last_n=3)
+        messages = recent_user_messages(state["messages"], last_n=3)
         if task_type == "user_request":
             system, prompt = build_tool_loop_followup_prompt(
                 user_message=user_message,
@@ -375,6 +368,28 @@ def _build_graph(
         # logger.info(f"final state: {state}")
         return {"messages": [response], "tool_set": set()}
 
+    summarization_node = SummarizationNode(
+        model=runner_context.llm_api,
+        token_counter=count_tokens_approximately,
+        max_tokens=512,
+        max_tokens_before_summary=512,
+        max_summary_tokens=256,
+    )
+
+    def init_node(state: DeepToolLoopState):
+        m = state["messages"]
+        # logger.info(f"init_state: {m}")
+        return {}
+
+    def do_summarize_node(state: DeepToolLoopState):
+        response = model.invoke(state["summarized_messages"])
+        _s = state["summarized_messages"]
+        logger.info(f"summarized_messages: {_s}")
+        return {"messages": [response]}
+
+    graph.add_node("init", init_node)
+    graph.add_node("summarization", summarization_node)
+    graph.add_node("do_summarize", do_summarize_node)
     graph.add_node("build_memory", build_memory)
     graph.add_node("plan", plan)
     graph.add_node("discover", discover)
@@ -383,7 +398,7 @@ def _build_graph(
     graph.add_node("observe", observe)
     graph.add_node("followup", followup)
 
-    def route_after_act(state: ToolLoopState):
+    def route_after_act(state: DeepToolLoopState):
         if state.get("stop"):
             return "followup"
         decision = tools_condition(cast(dict[str, object], state))
@@ -391,13 +406,16 @@ def _build_graph(
             return "followup"
         return "tools"
 
-    def route_after_observe(state: ToolLoopState):
+    def route_after_observe(state: DeepToolLoopState):
         if state.get("stop"):
             return "followup"
         return "plan"
 
-    graph.set_entry_point("build_memory")
-    graph.add_edge("build_memory", "plan")
+    graph.set_entry_point("init")
+    graph.add_edge("init", "build_memory")
+    graph.add_edge("build_memory", "summarization")
+    graph.add_edge("summarization", "do_summarize")
+    graph.add_edge("do_summarize", "plan")
     graph.add_edge("plan", "discover")
     graph.add_edge("discover", "act")
     graph.add_conditional_edges(
@@ -414,118 +432,6 @@ def _build_graph(
     return graph.compile(
         checkpointer=runner_context.message_store.checkpointer,
         store=store,
-    )
-
-
-def _budget_limit(task: Task, default_limit: int) -> int:
-    payload = task.payload or {}
-    budget = payload.get("budget") or {}
-    remaining = budget.get("remaining_steps")
-    try:
-        if remaining is not None:
-            steps = max(0, int(remaining))
-            return max(default_limit, steps * 3 + 3)
-    except (TypeError, ValueError):
-        return default_limit
-    return default_limit
-
-
-def _last_ai_message(messages: Sequence[BaseMessage]) -> Optional[AIMessage]:
-    for message in reversed(messages):
-        if isinstance(message, AIMessage):
-            return message
-    return None
-
-
-def _filter_tools(tools: Sequence[BaseTool], tool_set: Set[str]) -> List[BaseTool]:
-    if not tool_set:
-        return []
-    return [tool for tool in tools if tool.name in tool_set]
-
-
-def _recent_user_messages(
-    messages: Sequence[BaseMessage], last_n: int
-) -> Sequence[BaseMessage]:
-    if last_n <= 0:
-        return []
-    selected: List[BaseMessage] = []
-    seen_ai = False
-    for message in reversed(messages):
-        if isinstance(message, SystemMessage):
-            continue
-        if isinstance(message, ToolMessage):
-            continue
-        if isinstance(message, AIMessage):
-            if message.tool_calls:
-                continue
-            if not seen_ai:
-                selected.append(message)
-                seen_ai = True
-            continue
-        if isinstance(message, HumanMessage):
-            selected.append(message)
-            if seen_ai:
-                last_n -= 1
-                if last_n <= 0:
-                    break
-                seen_ai = False
-            continue
-    return list(reversed(selected))
-
-
-def _budget_exceeded_text() -> str:
-    return (
-        "上限に達したためtool使用をストップしました。"
-        "ここまでのtoolの結果を利用し、調査が足りていない旨を含めて回答してください。"
-    )
-
-
-def _handle_tool_error(exc: Exception) -> str:
-    logger.error("tool execution error: %s", exc, exc_info=True)
-    return f"TOOL_ERROR: {exc}"
-
-
-def _message_content_text(message: AIMessage) -> str:
-    content = message.content
-    if isinstance(content, str):
-        return content
-    return str(content)
-
-
-def _load_checkpoint_messages(checkpointer, config: dict) -> Sequence[BaseMessage]:
-    try:
-        checkpoint_tuple = checkpointer.get_tuple(config)
-    except Exception:
-        logger.error("failed to load checkpoint messages", exc_info=True)
-        return []
-    if not checkpoint_tuple:
-        return []
-    checkpoint = checkpoint_tuple.checkpoint
-    channel_values = checkpoint.get("channel_values", {})
-    messages = channel_values.get("messages")
-    if isinstance(messages, list):
-        return messages
-    return []
-
-
-def _build_memory_context(
-    state_api,
-    conversation_id: str,
-    query: str,
-) -> str:
-    memory_kernel = state_api.memory_kernel(conversation_id)
-    if memory_kernel is None:
-        logger.warning("memory_kernel is None")
-        return ""
-    profile_text = memory_kernel.get_profile_context(limit=1)
-    # logger.info(f"profile_text: {profile_text}")
-    semantic_text = memory_kernel.get_semantic_context(query, limit=1)
-    # logger.info(f"semantic_text: {semantic_text}")
-    episodic_text = memory_kernel.get_episodic_context(query, limit=1)
-    # logger.info(f"episodic_text: {episodic_text}")
-
-    return "\n".join(
-        part for part in (profile_text, semantic_text, episodic_text) if part
     )
 
 
@@ -569,7 +475,7 @@ class _ObserveDecision(BaseModel):
 
 def _plan_with_llm(
     model: BaseChatModel,
-    state: ToolLoopState,
+    state: DeepToolLoopState,
     user_message: str,
 ) -> tuple[str, str]:
     _ctx: ToolStepContext = state["tool_step_context"]
@@ -610,7 +516,9 @@ def _plan_with_llm(
         return phase, goal
 
 
-def _observe_with_llm(model: BaseChatModel, state: ToolLoopState) -> _ObservationResult:
+def _observe_with_llm(
+    model: BaseChatModel, state: DeepToolLoopState
+) -> _ObservationResult:
     _ctx: ToolStepContext = state["tool_step_context"]
     tool_result = _last_tool_result(state["messages"])
 

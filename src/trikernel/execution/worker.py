@@ -4,6 +4,7 @@ from typing import Optional, Sequence
 
 from langchain.chat_models import BaseChatModel
 
+from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 from trikernel.utils.logging import get_logger
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -11,7 +12,6 @@ from langgraph.store.base import BaseStore
 
 from ..orchestration_kernel.models import RunResult, RunnerContext
 from ..state_kernel.memory_manager import LangMemMemoryManager
-from ..orchestration_kernel.protocols import Runner
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
 from ..tool_kernel.kernel import ToolKernel
@@ -27,7 +27,7 @@ class WorkWorker:
         state_api: StateKernelAPI,
         message_store: MessageStoreAPI,
         tool_api: ToolKernel,
-        runner: Runner,
+        runner: RunnerAPI,
         llm_api: BaseChatModel,
         tool_llm_api: ToolLLMBase,
         memory_manager: LangMemMemoryManager,

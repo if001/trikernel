@@ -10,13 +10,13 @@ from typing import Any, Dict, List, Optional, Union
 from langchain.chat_models import BaseChatModel
 from langgraph.store.base import BaseStore
 
+from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 from trikernel.utils.logging import get_logger
 
 from .dispatcher import DispatchConfig, WorkDispatcher
 from .worker import WorkWorker
 from .loop import ExecutionLoop, LoopConfig
 from ..orchestration_kernel.models import RunResult, RunnerContext
-from ..orchestration_kernel.protocols import Runner
 from ..state_kernel.memory_manager import LangMemMemoryManager
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
@@ -42,7 +42,7 @@ class TrikernelSession:
         *,
         state_api: StateKernelAPI,
         tool_api: ToolKernel,
-        runner: Runner,
+        runner: RunnerAPI,
         llm_api: BaseChatModel,
         large_llm_api: BaseChatModel,
         tool_llm_api: ToolLLMBase,

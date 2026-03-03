@@ -4,32 +4,22 @@ from typing import Any
 
 
 from langchain_core.messages import (
-    AIMessage,
     HumanMessage,
     SystemMessage,
 )
 
 from langchain.agents import create_agent
-from langchain_core.prompts import HumanMessagePromptTemplate
 from langgraph.runtime import Runtime
 from langchain.agents.middleware import (
-    before_model,
-    after_model,
-    before_agent,
-    AgentState,
-    LLMToolSelectorMiddleware,
-    SummarizationMiddleware,
-    ClearToolUsesEdit,
-    ContextEditingMiddleware,
-    ClearToolUsesEdit,
     FilesystemFileSearchMiddleware,
 )
+from deepagents import create_deep_agent
+from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
 from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
-# from deepagents.middleware.filesystem import FilesystemMiddleware
+
 
 from ..logging import get_logger
-from ._shared import history_messages
 from ..models import RunResult, RunnerContext
 from ..payloads import extract_llm_input, extract_user_message
 from .prompts import (
@@ -41,7 +31,7 @@ from ...state_kernel.models import Task
 logger = get_logger(__name__)
 
 
-class AgentLoopRunner(RunnerAPI):
+class DeepAgentLoopRunner(RunnerAPI):
     def __init__(
         self,
         recursion_limit: int = 20,
@@ -50,9 +40,7 @@ class AgentLoopRunner(RunnerAPI):
 
     def run(self, task: Task, ctx: RunnerContext) -> RunResult:
         try:
-            user_message = extract_user_message(
-                extract_llm_input(task.payload or {})
-            )
+            user_message = extract_user_message(extract_llm_input(task.payload or {}))
             if not user_message:
                 return RunResult(
                     user_output=None,
@@ -114,75 +102,29 @@ class AgentLoopRunner(RunnerAPI):
             )
 
     def _build(self, ctx: RunnerContext):
-        @before_agent
-        def _inject_long_term_memories(
-            state: AgentState, runtime: Runtime
-        ) -> dict[str, Any] | None:
-            logger.info("run _inject_long_term_memories")
-            msgs = state.get("messages", [])
-            if not msgs:
-                return None
-
-            only_history = history_messages(msgs)
-
-            query = getattr(msgs[-1], "content", "") or ""
-            memory_kernel = ctx.state_api.memory_kernel(ctx.conversation_id)
-            memory_text = ""
-            if memory_kernel is None:
-                logger.warning("memory_kernel is None")
-            else:
-                profile_text = memory_kernel.get_profile_context(limit=1)
-                # logger.info(f"profile_text: {profile_text}")
-                semantic_text = memory_kernel.get_semantic_context(query, limit=1)
-                # logger.info(f"semantic_text: {semantic_text}")
-                episodic_text = memory_kernel.get_episodic_context(query, limit=1)
-                # logger.info(f"episodic_text: {episodic_text}")
-                memory_text = "\n".join(
-                    part
-                    for part in (profile_text, semantic_text, episodic_text)
-                    if part
-                )
-
-            system = build_agent_prompt(memory_text)
-            return {"messages": [SystemMessage(content=system), *only_history]}
-
-        selector = LLMToolSelectorMiddleware(
-            model=ctx.llm_api,
-            max_tools=4,
-            always_include=[],
-        )
-        summarization = SummarizationMiddleware(
-            model=ctx.llm_api,
-            trigger=("messages", 10),
-            keep=("messages", 5),
-        )
-        clearToolResult = ContextEditingMiddleware(
-            edits=[
-                ClearToolUsesEdit(
-                    trigger=2000,
-                    keep=3,
-                )
-            ]
-        )
         work_space_dir = os.environ.get("work_space_dir", os.getcwd())
         fsSearch = FilesystemFileSearchMiddleware(
             root_path=work_space_dir,
-            use_ripgrep=True,  # ripgrepがあれば使う
-            max_file_size_mb=10,  # 大きすぎるファイルはスキップ
+            use_ripgrep=True,
+            max_file_size_mb=10,
         )
 
+        def make_backend(runtime):
+            return CompositeBackend(
+                default=StateBackend(runtime),
+                routes={"/memories/": StoreBackend(runtime)},
+            )
+
         tools = ctx.tool_api.tool_structured_list()
-        agent = create_agent(
+        logger.info(f"tools: {tools}")
+        system = build_agent_prompt()
+        agent = create_deep_agent(
             model=ctx.large_llm_api,
             tools=tools,
-            middleware=[
-                _inject_long_term_memories,
-                summarization,
-                clearToolResult,
-                selector,
-                fsSearch,
-            ],
+            system_prompt=system,
             store=ctx.store,
+            backend=make_backend,
             checkpointer=ctx.message_store.checkpointer,
+            middleware=[fsSearch],
         )
         return agent
