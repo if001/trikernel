@@ -65,7 +65,7 @@ class StateKernel(StateKernelAPI):
         return self._artifact_store.write(media_type, body, metadata).artifact_id
 
     def get_artifact_path(self, id: str) -> str:
-        return self.get_artifact_path(id)
+        return str(self._artifact_store.artifact_path(id))
 
     def artifact_read(self, artifact_id: str) -> Optional[Artifact]:
         return self._artifact_store.read(artifact_id)

@@ -12,7 +12,7 @@ from tools.web_tools import build_web_tools
 async def main() -> None:
     kernel = ToolKernel()
     async with build_memory_store() as store:
-        register_default_tools(kernel, store=store)
+        register_default_tools(kernel)
         for tool in build_web_tools():
             kernel.tool_register(tool)
         print("Registered web tools:", [tool.name for tool in kernel.tool_list()])

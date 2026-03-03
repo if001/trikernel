@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.prebuilt import InjectedState
-from pydantic import BaseModel, Field
+from pydantic import Field
 from typing_extensions import Annotated
 
 from ..prompts import build_step_goal_prompt
@@ -34,22 +34,20 @@ def _require_llm_api(state: dict) -> Any:
     return llm_api
 
 
-class StepGoalArgs(BaseModel):
-    previous_goal: Optional[str] = Field(default=None, description="Previous goal.")
-    step_context: Optional[Dict[str, object]] = Field(
-        default=None, description="Step context snapshot."
-    )
-    user_message: Optional[str] = Field(default=None, description="User message.")
-    failure_reason: Optional[str] = Field(default=None, description="Failure reason.")
-
-
 def step_goal(
-    previous_goal: Optional[str] = None,
-    step_context: Optional[Dict[str, object]] = None,
-    user_message: Optional[str] = None,
-    failure_reason: Optional[str] = None,
-    *,
-    state: Annotated[dict, InjectedState],
+    previous_goal: Annotated[
+        Optional[str], Field(default=None, description="Previous goal.")
+    ] = None,
+    step_context: Annotated[
+        Optional[Dict[str, object]], Field(default=None, description="Step context snapshot.")
+    ] = None,
+    user_message: Annotated[
+        Optional[str], Field(default=None, description="User message.")
+    ] = None,
+    failure_reason: Annotated[
+        Optional[str], Field(default=None, description="Failure reason.")
+    ] = None,
+    state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
     state_api = _require_state_api(state)
     task_id = state.get("task_id") if isinstance(state, dict) else None
@@ -97,6 +95,5 @@ def build_system_tools() -> list[BaseTool]:
                 "Propose/refine the next step goal given the current context (including failure reason).\n"
                 "Use at the start of each tool-execution loop iteration to keep actions aligned with the user’s intent."
             ),
-            args_schema=StepGoalArgs,
         )
     ]

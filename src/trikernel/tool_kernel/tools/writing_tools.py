@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.prebuilt import InjectedState
-from pydantic import BaseModel, Field
+from pydantic import Field
 from typing_extensions import Annotated
 
 from trikernel.utils.logging import get_logger
@@ -34,53 +34,18 @@ def _require_llm(state: dict) -> ToolLLMBase:
     return llm_api
 
 
-class SummarizeArgs(BaseModel):
-    text: str = Field(..., description="Text to summarize.")
-    max_length: Optional[int] = Field(default=None, description="Max length.")
-    style: Optional[str] = Field(default=None, description="Summary style.")
-    language: Optional[str] = Field(default="Japanese", description="Output language.")
-
-
-class ExtractArgs(BaseModel):
-    source_text: str = Field(..., description="Reference/source text.")
-    target_text: str = Field(..., description="Target text to extract from.")
-    criteria: Optional[str] = Field(default=None, description="Selection criteria.")
-    language: Optional[str] = Field(default="Japanese", description="Output language.")
-
-
-class OutlineArgs(BaseModel):
-    user_input: Optional[str] = Field(default=None, description="User input.")
-    tool_results: Optional[List[str]] = Field(
-        default=None, description="Tool result summaries."
-    )
-    article_type: Optional[str] = Field(default=None, description="Article type.")
-    audience: Optional[str] = Field(default=None, description="Target audience.")
-    language: Optional[str] = Field(default="Japanese", description="Output language.")
-
-
-class PolishArgs(BaseModel):
-    draft: str = Field(..., description="Article draft.")
-    article_type: Optional[str] = Field(default=None, description="Article type.")
-    audience: Optional[str] = Field(default=None, description="Target audience.")
-    language: Optional[str] = Field(default="Japanese", description="Output language.")
-
-
-class GenerateArgs(BaseModel):
-    article_type: str = Field(..., description="Article type.")
-    audience: str = Field(..., description="Target audience.")
-    revisions: Optional[List[str]] = Field(default=None, description="Revision points.")
-    outline: Optional[str] = Field(default=None, description="Outline content.")
-    draft: str = Field(..., description="Draft content.")
-    language: Optional[str] = Field(default="Japanese", description="Output language.")
-
-
 def summarize_text(
-    text: str,
-    max_length: Optional[int] = None,
-    style: Optional[str] = None,
-    language: Optional[str] = "Japanese",
-    *,
-    state: Annotated[dict, InjectedState],
+    text: Annotated[str, Field(..., description="Text to summarize.")],
+    max_length: Annotated[
+        Optional[int], Field(default=None, description="Max length.")
+    ] = None,
+    style: Annotated[
+        Optional[str], Field(default=None, description="Summary style.")
+    ] = None,
+    language: Annotated[
+        Optional[str], Field(default="Japanese", description="Output language.")
+    ] = "Japanese",
+    state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, object]:
     llm_api = _require_llm(state)
     prompt = build_summary_prompt(
@@ -94,12 +59,15 @@ def summarize_text(
 
 
 def extract_corresponding(
-    source_text: str,
-    target_text: str,
-    criteria: Optional[str] = None,
-    language: Optional[str] = "Japanese",
-    *,
-    state: Annotated[dict, InjectedState],
+    source_text: Annotated[str, Field(..., description="Reference/source text.")],
+    target_text: Annotated[str, Field(..., description="Target text to extract from.")],
+    criteria: Annotated[
+        Optional[str], Field(default=None, description="Selection criteria.")
+    ] = None,
+    language: Annotated[
+        Optional[str], Field(default="Japanese", description="Output language.")
+    ] = "Japanese",
+    state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, object]:
     llm_api = _require_llm(state)
     prompt = build_extract_prompt(
@@ -113,13 +81,23 @@ def extract_corresponding(
 
 
 def create_outline(
-    user_input: Optional[str] = None,
-    tool_results: Optional[List[str]] = None,
-    article_type: Optional[str] = None,
-    audience: Optional[str] = None,
-    language: Optional[str] = "Japanese",
+    user_input: Annotated[
+        Optional[str], Field(default=None, description="User input.")
+    ] = None,
+    tool_results: Annotated[
+        Optional[List[str]], Field(default=None, description="Tool result summaries.")
+    ] = None,
+    article_type: Annotated[
+        Optional[str], Field(default=None, description="Article type.")
+    ] = None,
+    audience: Annotated[
+        Optional[str], Field(default=None, description="Target audience.")
+    ] = None,
+    language: Annotated[
+        Optional[str], Field(default="Japanese", description="Output language.")
+    ] = "Japanese",
     *,
-    state: Annotated[dict, InjectedState],
+    state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, object]:
     llm_api = _require_llm(state)
     prompt = build_outline_prompt(
@@ -134,12 +112,17 @@ def create_outline(
 
 
 def polish_article(
-    draft: str,
-    article_type: Optional[str] = None,
-    audience: Optional[str] = None,
-    language: Optional[str] = "Japanese",
-    *,
-    state: Annotated[dict, InjectedState],
+    draft: Annotated[str, Field(..., description="Article draft.")],
+    article_type: Annotated[
+        Optional[str], Field(default=None, description="Article type.")
+    ] = None,
+    audience: Annotated[
+        Optional[str], Field(default=None, description="Target audience.")
+    ] = None,
+    language: Annotated[
+        Optional[str], Field(default="Japanese", description="Output language.")
+    ] = "Japanese",
+    state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, object]:
     llm_api = _require_llm(state)
     prompt = build_polish_prompt(
@@ -153,14 +136,19 @@ def polish_article(
 
 
 def generate_article(
-    article_type: str,
-    audience: str,
-    draft: str,
-    revisions: Optional[List[str]] = None,
-    outline: Optional[str] = None,
-    language: Optional[str] = "Japanese",
-    *,
-    state: Annotated[dict, InjectedState],
+    article_type: Annotated[str, Field(..., description="Article type.")],
+    audience: Annotated[str, Field(..., description="Target audience.")],
+    draft: Annotated[str, Field(..., description="Draft content.")],
+    revisions: Annotated[
+        Optional[List[str]], Field(default=None, description="Revision points.")
+    ] = None,
+    outline: Annotated[
+        Optional[str], Field(default=None, description="Outline content.")
+    ] = None,
+    language: Annotated[
+        Optional[str], Field(default="Japanese", description="Output language.")
+    ] = "Japanese",
+    state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, object]:
     llm_api = _require_llm(state)
     prompt = build_article_prompt(
@@ -184,7 +172,6 @@ def build_writing_tools() -> List[BaseTool]:
                 "Summarize long text into a shorter form with optional max length/style/language.\n"
                 "Use to compress tool results before adding them to prompts/artifacts."
             ),
-            args_schema=SummarizeArgs,
         ),
         StructuredTool.from_function(
             extract_corresponding,
@@ -193,7 +180,6 @@ def build_writing_tools() -> List[BaseTool]:
                 "Extract specific information from target_text, guided by source_text and optional criteria.\n"
                 "Use when you have a reference schema/template and want structured selection."
             ),
-            args_schema=ExtractArgs,
         ),
         StructuredTool.from_function(
             create_outline,
@@ -202,13 +188,11 @@ def build_writing_tools() -> List[BaseTool]:
                 "Create an article outline from user intent and tool result summaries.\n"
                 "Use when the user asks for a written deliverable (blog, doc, report)."
             ),
-            args_schema=OutlineArgs,
         ),
         StructuredTool.from_function(
             polish_article,
             name="article.polish",
             description="Improve clarity/structure/tone of an article draft for a target audience.",
-            args_schema=PolishArgs,
         ),
         StructuredTool.from_function(
             generate_article,
@@ -217,7 +201,6 @@ def build_writing_tools() -> List[BaseTool]:
                 "Generate a full article from an outline and/or draft + revision points.\n"
                 "Use for final deliverable generation, not for internal reasoning."
             ),
-            args_schema=GenerateArgs,
         ),
     ]
 

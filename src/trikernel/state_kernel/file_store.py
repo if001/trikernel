@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 from uuid import uuid4
 
+from trikernel.state_kernel.protocols import ArtifactStore, TaskStore
+
 from ..utils.env import load_env
 from langchain_ollama import OllamaEmbeddings
 from langchain_core.documents import Document
@@ -27,7 +29,7 @@ def _merge_patch(target: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any
     return merged
 
 
-class JsonFileTaskStore:
+class JsonFileTaskStore(TaskStore):
     def __init__(self, data_dir: Path) -> None:
         self._path = data_dir / "tasks.json"
         self._lock = threading.Lock()
@@ -149,7 +151,7 @@ class JsonFileTaskStore:
         )
 
 
-class JsonFileArtifactStore:
+class JsonFileArtifactStore(ArtifactStore):
     def __init__(self, data_dir: Path) -> None:
         self._artifact_dir = data_dir / "artifacts"
         self._lock = threading.Lock()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Optional, Protocol, TypeAlias
-
+from pathlib import Path
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 Checkpointer = BaseCheckpointSaver
@@ -11,7 +11,7 @@ from .memory_kernel import MemoryKernel
 
 
 class TaskStore(Protocol):
-    def create(self, task_type: str, payload: Dict[str, Any]) -> Task: ...
+    def create(self, task_type: TaskType, payload: Dict[str, Any]) -> Task: ...
 
     def get(self, task_id: str) -> Optional[Task]: ...
 
@@ -49,6 +49,8 @@ class ArtifactStore(Protocol):
     def list(self) -> List[Artifact]: ...
 
     def search(self, query: Dict[str, Any]) -> Iterable[Artifact]: ...
+
+    def artifact_path(self, artifact_id: str) -> Path: ...
 
 
 class MessageStoreAPI(Protocol):

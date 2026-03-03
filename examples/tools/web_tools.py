@@ -24,21 +24,6 @@ class WebClientConfig:
     base_url: str
 
 
-class WebQueryArgs(BaseModel):
-    user_message: str = Field(
-        ..., description="User message to summarize into a query."
-    )
-
-
-class WebListArgs(BaseModel):
-    q: str = Field(..., description="Query string.")
-    k: int = Field(..., description="Number of results.")
-
-
-class WebPageArgs(BaseModel):
-    url: str = Field(..., description="Comma-separated URLs.")
-
-
 def load_web_client_config() -> WebClientConfig:
     load_dotenv()
     base_url = os.environ.get("SIMPLE_CLIENT_BASE_URL", "http://localhost:8000")
@@ -46,7 +31,9 @@ def load_web_client_config() -> WebClientConfig:
 
 
 def web_query(
-    user_message: str,
+    user_message: str = Field(
+        ..., description="User message to summarize into a query."
+    ),
     state: Annotated[dict, InjectedState] = {},
 ) -> str:
     history = _history_from_state(state)
@@ -64,8 +51,8 @@ def web_query(
 
 
 def web_list(
-    q: str,
-    k: int = 5,
+    q: str = Field(..., description="Query string."),
+    k: Optional[int] = Field(..., description="Number of results."),
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
     _ = state
@@ -74,8 +61,26 @@ def web_list(
     return _post_json(f"{config.base_url}/list", payload_dict)
 
 
+def web_list_ref(
+    q: str = Field(..., description="Query string."),
+    k: Optional[int] = Field(..., description="Number of results."),
+    state: Annotated[dict, InjectedState] = {},
+) -> Dict[str, Any]:
+    state_api = _require_state_api(state)
+    config = load_web_client_config()
+    payload_dict = {"q": q, "k": k}
+    response = _post_json(f"{config.base_url}/list", payload_dict)
+    artifact_id = state_api.artifact_write(
+        "application/json",
+        json.dumps(response, ensure_ascii=False),
+        {"source": "web.list"},
+    )
+    path = state_api.get_artifact_path(artifact_id)
+    return {"artifact_id": artifact_id, "content_path": path}
+
+
 def web_page(
-    url: str,
+    url: str = Field(..., description="Comma-separated URLs."),
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
     _ = state
@@ -85,12 +90,12 @@ def web_page(
 
 
 def web_page_ref(
-    url: str,
+    url: str = Field(..., description="Comma-separated URLs."),
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
-    print("call web page ref!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
     state_api = _require_state_api(state)
     response = web_page(url, state=state)
+
     artifact_id = state_api.artifact_write(
         "application/json",
         json.dumps(response, ensure_ascii=False),
@@ -158,13 +163,16 @@ def build_web_tools() -> List[BaseTool]:
             web_query,
             name="web.query",
             description="Generate a focused web search query from the user message and current context. Use before web.list.",
-            args_schema=WebQueryArgs,
         ),
+        # StructuredTool.from_function(
+        #     web_list,
+        #     name="web.list",
+        #     description="Fetch top-k web search results (snippets/urls). Use to choose candidate pages for reading.",
+        # ),
         StructuredTool.from_function(
-            web_list,
+            web_list_ref,
             name="web.list",
-            description="Fetch top-k web search results (snippets/urls). Use to choose candidate pages for reading.",
-            args_schema=WebListArgs,
+            description="Fetch top-k web search results (snippets/urls) and store the extracted text as artifacts. Use to choose candidate pages for reading.",
         ),
         # StructuredTool.from_function(
         #     web_page,
@@ -173,12 +181,11 @@ def build_web_tools() -> List[BaseTool]:
         # ),
         StructuredTool.from_function(
             web_page_ref,
-            name="web.page_ref",
+            name="web.page",
             description=(
                 "Fetch one or more web pages and store the extracted text as artifacts."
                 "Use artifact.search to retrieve relevant pages later by meaning, then artifact.read / artifact.extract to consume them."
             ),
-            args_schema=WebPageArgs,
         ),
     ]
 
@@ -205,8 +212,7 @@ def web_list_and_store(
     import datetime as dt
     from urllib.parse import urlparse
 
-    if not k:
-        k = 5
+    k = k if k else 5
 
     config = load_web_client_config()
     payload_dict = {"q": q, "k": k}
@@ -270,7 +276,6 @@ def build_web_tools_for_deep_agent() -> List[BaseTool]:
             web_query,
             name="web.query",
             description="Generate a focused web search query from the user message and current context. Use before web.list.",
-            args_schema=WebQueryArgs,
         ),
         StructuredTool.from_function(
             web_list_and_store,
