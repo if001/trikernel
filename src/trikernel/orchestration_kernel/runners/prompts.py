@@ -142,11 +142,10 @@ def build_tool_loop_prompt_deep(
     user_message: str,
     step_context_text: str,
     memory_context_text: str = "",
+    summary: Optional[str] = None,
 ) -> tuple[str, str]:
     work_space_dir = os.environ.get("work_space_dir")
-    memory_block = (
-        f"## Memory context\n{memory_context_text}\n\n" if memory_context_text else ""
-    )
+
     system = (
         "あなたはメインエージェントです。"
         "ユーザー入力(user_input)を処理し、タスクを完了するために適切にツールを選択してください。"
@@ -177,8 +176,18 @@ def build_tool_loop_prompt_deep(
         "- 他のワーカーの状況は task.list で取得できる。"
         ""
     )
-
-    prompt = f"{memory_block}\n\n## Step context\n{step_context_text}\n\n## User input\n{user_message}"
+    memory_block = (
+        f"## Memory context\n{memory_context_text}\n\n" if memory_context_text else ""
+    )
+    summary_block = f"# Conversation Summary:\n{summary}\n\n" if summary else ""
+    prompt = (
+        f"{memory_block}"
+        f"{summary_block}"
+        "## Step context\n"
+        f"{step_context_text}\n\n"
+        "## User input\n"
+        f"{user_message}"
+    )
     return system, prompt
 
 
@@ -414,6 +423,7 @@ def build_discover_tools_deep_prompt(
     step_context_text: str,
     memory_context_text: str = "",
     phase_goal: str = "",
+    summary: Optional[str] = None,
 ) -> tuple[str, str]:
     system = (
         "あなたは、ユーザーの入力を分析し、膨大なツールセットの中から最適なツールを検索するための「検索クエリ」を作成するエキスパートです。\n\n"
@@ -447,8 +457,10 @@ def build_discover_tools_deep_prompt(
     memory_block = (
         f"# Memory context:\n{memory_context_text}\n\n" if memory_context_text else ""
     )
+    summary_block = f"# Conversation Summary:\n{summary}\n\n" if summary else ""
     prompt = (
-        f"{memory_block}\n\n"
+        f"{memory_block}"
+        f"{summary_block}"
         f"# Step context\n{step_context_text}\n\n"
         f"# Phase goal\n{phase_goal}\n\n"
         f"# Tool Overview\n{tools_text}\n\n"
@@ -459,7 +471,7 @@ def build_discover_tools_deep_prompt(
 
 def build_plan_prompt(
     user_message: str,
-    memory_context_text: str,
+    memory_text: str,
     phase: Optional[str] = None,
     phase_goal: Optional[str] = None,
     last_observation: Optional[str] = None,
@@ -467,6 +479,7 @@ def build_plan_prompt(
     need_clarification: List[str] = [],
     remaining_steps: int = 5,
     spent_steps: int = 5,
+    summary: Optional[str] = None,
 ) -> tuple[str, str]:
     system = (
         "あなたは、タスクを段階的に進めるエージェントの「計画モジュール」です。\n"
@@ -496,6 +509,7 @@ def build_plan_prompt(
         '"phase_gole": "次の反復で達成すべき具体的な狙い（1文）\n'
         "}"
     )
+    memory_block = f"### Memories\n{memory_text}\n\n" if memory_text else ""
     phase_block = f"## Previous Phase\n{phase}\n\n" if phase else ""
     goal_block = f"## Previous Goal\n{phase_goal}\n\n" if phase_goal else ""
     last_observation_block = (
@@ -510,10 +524,10 @@ def build_plan_prompt(
     budget_block = (
         f"## Step\nremaining_step: {remaining_steps}\nspent_steps: {spent_steps}\n\n"
     )
-
+    summary_block = f"# Conversation Summary:\n{summary}\n\n" if summary else ""
     prompt = (
-        "## Memory context\n"
-        f"{memory_context_text}\n\n"
+        f"{memory_block}"
+        f"{summary_block}"
         f"{phase_block}"
         f"{goal_block}"
         f"{last_observation_block}"
@@ -534,6 +548,7 @@ def build_observe_prompt(
     notes: List[str],
     need_clarification: List[str],
     error_summary: str,
+    summary: Optional[str] = None,
 ) -> tuple[str, str]:
     system = """あなたは、ツール実行結果を次の反復のための状態(state)に反映する「観測・圧縮モジュール」です。
 
@@ -595,7 +610,10 @@ def build_observe_prompt(
   "stop": true | false
 }"""
 
-    prompt = f"""# 直前のフェーズと狙い
+    summary_block = f"# Conversation Summary:\n{summary}\n\n" if summary else ""
+    prompt = f"""{summary_block}
+
+# 直前のフェーズと狙い
 phase: {phase}
 phase_goal: {phase_goal}
 

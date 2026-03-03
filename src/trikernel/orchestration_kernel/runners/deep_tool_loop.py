@@ -4,6 +4,7 @@ import json
 import time
 from typing import List, Sequence, Set, cast, Literal
 from langchain.chat_models import BaseChatModel
+from langmem.utils import AnyMessage, RunnableConfig
 from pydantic import BaseModel, Field
 
 from langchain_core.messages import (
@@ -17,7 +18,7 @@ from langchain_core.tools import BaseTool
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
-from langmem.short_term import SummarizationNode, RunningSummary
+from langmem.short_term import SummarizationNode, summarize_messages
 
 from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 from ..logging import get_logger
@@ -57,7 +58,7 @@ logger = get_logger(__name__)
 class DeepToolLoopRunner(RunnerAPI):
     def __init__(
         self,
-        recursion_limit: int = 20,
+        recursion_limit: int = 100,
     ) -> None:
         self._recursion_limit = recursion_limit
 
@@ -74,7 +75,7 @@ class DeepToolLoopRunner(RunnerAPI):
                 )
             tools = runner_context.tool_api.tool_structured_list()
             tool_list_text = tools_text(runner_context)
-            step_context = _initial_step_context(task)
+            step_context = _initial_step_context(task, self._recursion_limit)
             graph = _build_graph(
                 runner_context.large_llm_api,
                 runner_context.llm_api,
@@ -91,7 +92,8 @@ class DeepToolLoopRunner(RunnerAPI):
                 runner_context.state_api,
                 runner_context.tool_llm_api,
             )
-            config = {
+
+            config: RunnableConfig = {
                 "recursion_limit": limit,
                 "configurable": {
                     "thread_id": runner_context.conversation_id,
@@ -102,7 +104,7 @@ class DeepToolLoopRunner(RunnerAPI):
                 result = graph.invoke(
                     {
                         "messages": [HumanMessage(content=user_message)],
-                        "summarized_messages": [],
+                        "running_summary": None,
                         "tool_set": set(),
                         "tool_step_context": step_context,
                         "stop": False,
@@ -111,8 +113,9 @@ class DeepToolLoopRunner(RunnerAPI):
                         "memory_context_text": "",
                         "phase": "GET",
                         "phase_goal": "",
+                        "state_api": None,
                     },
-                    config=config,
+                    config,
                     # debug=True,
                 )
                 last_message = last_ai_message(result.get("messages", []))
@@ -126,9 +129,15 @@ class DeepToolLoopRunner(RunnerAPI):
                 )
             except GraphRecursionError:
                 logger.warning("langgraph recursion limit hit: %s", task.task_id)
+                checkpoint_config = {
+                    "configurable": {
+                        "thread_id": runner_context.conversation_id,
+                        "langgraph_user_id": runner_context.conversation_id,
+                    },
+                }
                 messages = load_checkpoint_messages(
                     runner_context.message_store.checkpointer,
-                    config,
+                    checkpoint_config,
                 )
                 if not messages:
                     return RunResult(
@@ -152,7 +161,7 @@ class DeepToolLoopRunner(RunnerAPI):
                         f"{followup_prompt}\n\nMemory context:\n{memory_context_text}\n"
                     )
                 response = runner_context.llm_api.invoke(
-                    list(recent_user_messages(messages, last_n=3))
+                    list(recent_user_messages(messages, last_n=2))
                     + [HumanMessage(content=followup_prompt)]
                 )
                 messages.append(response)
@@ -175,11 +184,11 @@ class DeepToolLoopRunner(RunnerAPI):
             )
 
 
-def _initial_step_context(task: Task) -> ToolStepContext:
+def _initial_step_context(task: Task, limit: int) -> ToolStepContext:
     payload = task.payload or {}
     budget_payload = payload.get("budget") or {}
     budget = Budget(
-        remaining_steps=int(budget_payload.get("remaining_steps", 10)),
+        remaining_steps=int(budget_payload.get("remaining_steps", limit)),
         spent_steps=int(budget_payload.get("spent_steps", 0)),
     )
     return ToolStepContext(
@@ -221,8 +230,9 @@ def _build_graph(
             return {"phase": phase, "phase_goal": goal, "tool_set": set()}
         return {"phase": phase, "phase_goal": goal}
 
-    def discover(state):
-        messages = recent_user_messages(state["messages"], last_n=3)
+    def discover(state: DeepToolLoopState):
+        messages = recent_user_messages(state["messages"], last_n=0)
+        summary = state["running_summary"]
         phase_goal = state["phase_goal"]
         memory_context_text = state.get("memory_context_text", "")
         if state.get("phase") == "FINISH":
@@ -233,6 +243,7 @@ def _build_graph(
             step_context_text=state["tool_step_context"].to_str(),
             memory_context_text=memory_context_text,
             phase_goal=phase_goal,
+            summary=summary.summary if summary else None,
         )
 
         response = model.invoke(
@@ -257,13 +268,14 @@ def _build_graph(
                 "messages": [AIMessage(content=budget_exceeded_text())],
                 "stop": True,
             }
-
+        summary = state["running_summary"]
         memory_context_text = state.get("memory_context_text", "")
         if task_type == "user_request":
             system, prompt = build_tool_loop_prompt_deep(
                 user_message=user_message,
                 step_context_text=state["tool_step_context"].to_str(),
                 memory_context_text=memory_context_text,
+                summary=summary.summary if summary else None,
             )
         elif task_type == "notification":
             system, prompt = build_tool_loop_prompt_simple_for_notification(
@@ -324,7 +336,7 @@ def _build_graph(
     tool_node = ToolNode(list(tools), handle_tool_errors=handle_tool_error)
 
     def observe(state: DeepToolLoopState):
-        observation = _observe_with_llm(model, state)
+        observation = _observe_with_llm(runner_context.large_llm_api, state)
         state["tool_step_context"].last_observation = observation.last_observation
         state["tool_step_context"].error_summary = observation.error_summary
         state["tool_step_context"].need_clarification = observation.need_clarification
@@ -334,7 +346,7 @@ def _build_graph(
 
     def followup(state: DeepToolLoopState):
         memory_context_text = state.get("memory_context_text", "")
-        messages = recent_user_messages(state["messages"], last_n=3)
+        messages = recent_user_messages(state["messages"], last_n=2)
         if task_type == "user_request":
             system, prompt = build_tool_loop_followup_prompt(
                 user_message=user_message,
@@ -368,28 +380,25 @@ def _build_graph(
         # logger.info(f"final state: {state}")
         return {"messages": [response], "tool_set": set()}
 
-    summarization_node = SummarizationNode(
-        model=runner_context.llm_api,
-        token_counter=count_tokens_approximately,
-        max_tokens=512,
-        max_tokens_before_summary=512,
-        max_summary_tokens=256,
-    )
+    def summarization_node(state: DeepToolLoopState):
+        messages: list[AnyMessage] = cast(list[AnyMessage], state["messages"])
+        summarization_result = summarize_messages(
+            messages,
+            running_summary=state.get("running_summary"),
+            model=runner_context.llm_api,
+            max_tokens=512,
+            max_tokens_before_summary=512,
+            max_summary_tokens=256,
+        )
+        return {"running_summary": summarization_result.running_summary}
 
     def init_node(state: DeepToolLoopState):
         m = state["messages"]
         # logger.info(f"init_state: {m}")
         return {}
 
-    def do_summarize_node(state: DeepToolLoopState):
-        response = model.invoke(state["summarized_messages"])
-        _s = state["summarized_messages"]
-        logger.info(f"summarized_messages: {_s}")
-        return {"messages": [response]}
-
     graph.add_node("init", init_node)
     graph.add_node("summarization", summarization_node)
-    graph.add_node("do_summarize", do_summarize_node)
     graph.add_node("build_memory", build_memory)
     graph.add_node("plan", plan)
     graph.add_node("discover", discover)
@@ -414,8 +423,7 @@ def _build_graph(
     graph.set_entry_point("init")
     graph.add_edge("init", "build_memory")
     graph.add_edge("build_memory", "summarization")
-    graph.add_edge("summarization", "do_summarize")
-    graph.add_edge("do_summarize", "plan")
+    graph.add_edge("summarization", "plan")
     graph.add_edge("plan", "discover")
     graph.add_edge("discover", "act")
     graph.add_conditional_edges(
@@ -481,6 +489,7 @@ def _plan_with_llm(
     _ctx: ToolStepContext = state["tool_step_context"]
 
     memory_context_text = state.get("memory_context_text", "")
+    summary = state["running_summary"]
     system, prompt = build_plan_prompt(
         user_message,
         memory_context_text,
@@ -491,6 +500,7 @@ def _plan_with_llm(
         need_clarification=_ctx.need_clarification,
         remaining_steps=_ctx.budget.remaining_steps,
         spent_steps=_ctx.budget.spent_steps,
+        summary=summary.summary if summary else None,
     )
     logger.info(f"plan system: {system}")
     logger.info(f"plan prompt: {prompt}")
@@ -521,7 +531,7 @@ def _observe_with_llm(
 ) -> _ObservationResult:
     _ctx: ToolStepContext = state["tool_step_context"]
     tool_result = _last_tool_result(state["messages"])
-
+    summary = state["running_summary"]
     system, prompt = build_observe_prompt(
         tool_result=tool_result,
         phase=state["phase"],
@@ -530,6 +540,7 @@ def _observe_with_llm(
         notes=_ctx.notes,
         need_clarification=_ctx.need_clarification,
         error_summary=_ctx.error_summary,
+        summary=summary.summary if summary else None,
     )
     logger.info(f"observe system: {system}")
     logger.info(f"observe prompt: {prompt}")

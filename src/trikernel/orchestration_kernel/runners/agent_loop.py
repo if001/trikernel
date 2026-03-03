@@ -48,11 +48,10 @@ class AgentLoopRunner(RunnerAPI):
     ):
         self._recursion_limit = recursion_limit
 
-    def run(self, task: Task, ctx: RunnerContext) -> RunResult:
+    def run(self, task: Task, runner_context: RunnerContext) -> RunResult:
         try:
-            user_message = extract_user_message(
-                extract_llm_input(task.payload or {})
-            )
+            ctx = runner_context
+            user_message = extract_user_message(extract_llm_input(task.payload or {}))
             if not user_message:
                 return RunResult(
                     user_output=None,

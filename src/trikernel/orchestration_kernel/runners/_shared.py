@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, List, Sequence, Set, TypedDict
+from typing import Annotated, List, Optional, Sequence, Set, TypedDict
 
 from langchain_core.messages import (
     AIMessage,
@@ -11,18 +11,25 @@ from langchain_core.messages import (
 )
 from langchain_core.tools import BaseTool
 from langgraph.graph.message import add_messages
+from langmem.short_term import RunningSummary
+
+from trikernel.state_kernel.protocols import StateKernelAPI
 
 from ..logging import get_logger
 from ..models import RunnerContext, SimpleStepContext, ToolStepContext
 from ...state_kernel.models import Task
 
 
-class ToolLoopState(TypedDict):
+class BaseState(TypedDict):
+    task_id: str
+    runtime_id: str
     messages: Annotated[List[BaseMessage], add_messages]
+    state_api: Optional[StateKernelAPI]  ## runtime_idから取得される
+
+
+class ToolLoopState(BaseState):
     tool_set: Set[str]
     stop: bool
-    runtime_id: str
-    task_id: str
     memory_context_text: str
 
 
@@ -30,12 +37,14 @@ class SimpleToolLoopState(ToolLoopState):
     step_context: SimpleStepContext
 
 
-class DeepToolLoopState(ToolLoopState):
-    messages: Annotated[List[BaseMessage], add_messages]
+class DeepToolLoopState(BaseState):
+    tool_set: Set[str]
+    stop: bool
+    memory_context_text: str
     tool_step_context: ToolStepContext
     phase: str
     phase_goal: str
-    summarized_messages: list[BaseMessage]
+    running_summary: RunningSummary | None
 
 
 def budget_limit(task: Task, default_limit: int) -> int:
