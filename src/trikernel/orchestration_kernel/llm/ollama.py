@@ -37,6 +37,27 @@ def newOllamaClient(
     return _client
 
 
+def newOllamaCloudClient(
+    config: Optional[OllamaConfig] = None,
+    model: Optional[str] = None,
+    timeout: int = 60,
+):
+    import os
+
+    headers = {"Authorization": "Bearer " + os.environ.get("OLLAMA_API_KEY", "")}
+    # config = config or load_ollama_config()
+    # model = model or config.model
+    timeout = timeout
+    _client = ChatOllama(
+        # model="qwen3.5:27b",
+        # model="gemma3:27b", ## toolに対応してない
+        model="gpt-oss:20b",
+        base_url="https://ollama.com",
+        client_kwargs={"headers": headers},
+    )
+    return _client
+
+
 # class OllamaLLM(OrchestrationLLM):
 #     def __init__(
 #         self,

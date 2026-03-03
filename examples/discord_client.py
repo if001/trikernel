@@ -5,7 +5,10 @@ import os
 from dotenv import load_dotenv
 
 from trikernel.orchestration_kernel.llm.gemini import newGeiminiClient
-from trikernel.orchestration_kernel.llm.ollama import newOllamaClient
+from trikernel.orchestration_kernel.llm.ollama import (
+    newOllamaClient,
+    newOllamaCloudClient,
+)
 from trikernel.orchestration_kernel.runners.agent_loop import AgentLoopRunner
 from trikernel.orchestration_kernel.runners.deep_agent_loop import DeepAgentLoopRunner
 from trikernel.orchestration_kernel.runners.deep_tool_loop import DeepToolLoopRunner
@@ -38,14 +41,15 @@ async def runner_loop(ui: DiscordBot, runner: RunnerAPI) -> None:
     logger.info("runner_loop")
 
     llm = newOllamaClient()
-    gemini_llm = newGeiminiClient()
+    llm_cloud = newOllamaCloudClient()
+    # gemini_llm = newGeiminiClient()
 
     tool_llm = ToolOllamaLLM()
     state = StateKernel()
     tool_kernel = ToolKernel(re_index=False)
 
     async with build_memory_store() as store, build_message_store() as message_store:
-        register_default_tools(tool_kernel, store=store)
+        register_default_tools(tool_kernel)
         for tool in build_web_tools():
             tool_kernel.tool_register(tool)
 
@@ -60,7 +64,7 @@ async def runner_loop(ui: DiscordBot, runner: RunnerAPI) -> None:
             state_api=state,
             tool_api=tool_kernel,
             runner=runner,
-            large_llm_api=llm,
+            large_llm_api=llm_cloud,
             llm_api=llm,
             tool_llm_api=tool_llm,
             message_store=message_store,
