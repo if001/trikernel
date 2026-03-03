@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from trikernel.execution.dispatcher import DispatchConfig, PendingWork, WorkDispatcher
 from trikernel.execution.transports import ResultReceiver, WorkSender
-from trikernel.state_kernel.kernel import StateKernel
+from trikernel.state_kernel import StateKernel
 
 
 class FakeSender(WorkSender):

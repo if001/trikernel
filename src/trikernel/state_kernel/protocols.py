@@ -1,60 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Protocol, TypeAlias
-from pathlib import Path
-from langgraph.checkpoint.base import BaseCheckpointSaver
+from typing import Any, Dict, List, Optional, Protocol
 
-Checkpointer = BaseCheckpointSaver
-
+from .core.memory_kernel import MemoryKernel
 from .models import Artifact, Task, TaskType
-from .memory_kernel import MemoryKernel
-
-
-class TaskStore(Protocol):
-    def create(self, task_type: TaskType, payload: Dict[str, Any]) -> Task: ...
-
-    def get(self, task_id: str) -> Optional[Task]: ...
-
-    def update(self, task_id: str, patch: Dict[str, Any]) -> Optional[Task]: ...
-
-    def list(
-        self,
-        task_type: Optional[str] = None,
-        state: Optional[str] = None,
-    ) -> List[Task]: ...
-
-    def claim(
-        self,
-        filter_by: Dict[str, Any],
-        claimer_id: str,
-        ttl_seconds: int,
-    ) -> Optional[Task]: ...
-
-    def complete(self, task_id: str) -> Optional[Task]: ...
-
-    def fail(self, task_id: str, error_info: Dict[str, Any]) -> Optional[Task]: ...
-
-
-class ArtifactStore(Protocol):
-    def write(
-        self, media_type: str, body: str, metadata: Dict[str, Any]
-    ) -> Artifact: ...
-
-    def read(self, artifact_id: str) -> Optional[Artifact]: ...
-
-    def write_named(
-        self, artifact_id: str, media_type: str, body: str, metadata: Dict[str, Any]
-    ) -> Artifact: ...
-
-    def list(self) -> List[Artifact]: ...
-
-    def search(self, query: Dict[str, Any]) -> Iterable[Artifact]: ...
-
-    def artifact_path(self, artifact_id: str) -> Path: ...
-
-
-class MessageStoreAPI(Protocol):
-    checkpointer: Checkpointer
 
 
 class StateKernelAPI(Protocol):

@@ -3,11 +3,11 @@ import asyncio
 from trikernel.execution.dispatcher import DispatchConfig, WorkDispatcher
 from trikernel.execution.worker import WorkWorker
 from trikernel.execution.transports import ResultReceiver, ResultSender, WorkReceiver, WorkSender
-from trikernel.state_kernel.kernel import StateKernel
-from trikernel.state_kernel.message_store import build_message_store
-from trikernel.state_kernel.memory_store import build_memory_store
+from trikernel.state_kernel import StateKernel
+from trikernel.state_kernel import build_message_store
+from trikernel.state_kernel import build_memory_store
 from trikernel.orchestration_kernel.models import LLMResponse, RunResult
-from trikernel.state_kernel.memory_manager import LangMemMemoryManager
+from trikernel.state_kernel import LangMemMemoryManager
 from trikernel.tool_kernel.protocols import ToolLLMBase
 
 

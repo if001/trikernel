@@ -17,9 +17,10 @@ from .dispatcher import DispatchConfig, WorkDispatcher
 from .worker import WorkWorker
 from .loop import ExecutionLoop, LoopConfig
 from ..orchestration_kernel.models import RunResult, RunnerContext
-from ..state_kernel.memory_manager import LangMemMemoryManager
+from ..state_kernel import LangMemMemoryManager
 from ..state_kernel.models import Task
-from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
+from ..state_kernel.protocols import StateKernelAPI
+from ..state_kernel.core.message_store_interface import MessageStoreProtocol
 from ..tool_kernel.protocols import ToolLLMBase
 from ..tool_kernel.kernel import ToolKernel
 from .payloads import UserRequestPayload, WorkPayload
@@ -46,7 +47,7 @@ class TrikernelSession:
         llm_api: BaseChatModel,
         large_llm_api: BaseChatModel,
         tool_llm_api: ToolLLMBase,
-        message_store: MessageStoreAPI,
+        message_store: MessageStoreProtocol,
         store: BaseStore,
         conversation_id: str = "default",
         runner_id: str = "main",

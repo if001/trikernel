@@ -1,4 +1,4 @@
-from trikernel.state_kernel.kernel import StateKernel
+from trikernel.state_kernel import StateKernel
 
 
 if __name__ == "__main__":

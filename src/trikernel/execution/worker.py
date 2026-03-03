@@ -11,9 +11,10 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langgraph.store.base import BaseStore
 
 from ..orchestration_kernel.models import RunResult, RunnerContext
-from ..state_kernel.memory_manager import LangMemMemoryManager
+from ..state_kernel import LangMemMemoryManager
 from ..state_kernel.models import Task
-from ..state_kernel.protocols import StateKernelAPI, MessageStoreAPI
+from ..state_kernel.protocols import StateKernelAPI
+from ..state_kernel.core.message_store_interface import MessageStoreProtocol
 from ..tool_kernel.kernel import ToolKernel
 from ..tool_kernel.protocols import ToolLLMBase
 from .transports import ResultSender, WorkReceiver, ZmqResultSender, ZmqWorkReceiver
@@ -25,7 +26,7 @@ class WorkWorker:
     def __init__(
         self,
         state_api: StateKernelAPI,
-        message_store: MessageStoreAPI,
+        message_store: MessageStoreProtocol,
         tool_api: ToolKernel,
         runner: RunnerAPI,
         llm_api: BaseChatModel,

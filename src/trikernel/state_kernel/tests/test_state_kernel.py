@@ -1,4 +1,4 @@
-from trikernel.state_kernel.kernel import StateKernel
+from trikernel.state_kernel import StateKernel
 
 
 def test_task_lifecycle(tmp_path):
