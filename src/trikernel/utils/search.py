@@ -9,9 +9,13 @@ from langchain_community.retrievers import BM25Retriever
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 class HybridSearchIndex:
+    _chunk_size = 800
+    _chunk_overlap = 150
+
     def __init__(self, persist_dir: Path, name: str, embeddings: Embeddings) -> None:
         self._persist_dir = persist_dir
         self._persist_dir.mkdir(parents=True, exist_ok=True)
@@ -33,14 +37,25 @@ class HybridSearchIndex:
         if not force and self.has_id(doc_id):
             return
         self._docs = [
-            existing for existing in self._docs if existing.metadata.get("id") != doc_id
+            existing
+            for existing in self._docs
+            if existing.metadata.get("id") != doc_id
+            and existing.metadata.get("parent_id") != doc_id
         ]
-        self._docs.append(doc)
+        for v in self._docs:
+            print(len(v.dict()["page_content"]))
+        print("=" * 20)
+        self._docs.extend(self._split_document(doc, doc_id))
+        for v in self._docs:
+            print(len(v.dict()["page_content"]))
         self._rebuild_indexes()
         self._persist_docs()
 
     def has_id(self, doc_id: str) -> bool:
-        return any(doc.metadata.get("id") == doc_id for doc in self._docs)
+        return any(
+            doc.metadata.get("id") == doc_id or doc.metadata.get("parent_id") == doc_id
+            for doc in self._docs
+        )
 
     def search(
         self,
@@ -76,6 +91,7 @@ class HybridSearchIndex:
             self._faiss = None
             self._bm25 = None
             return
+
         self._faiss = FAISS.from_documents(self._docs, self._embeddings)
         self._bm25 = BM25Retriever.from_documents(self._docs)
         self._persist_faiss()
@@ -133,3 +149,22 @@ class HybridSearchIndex:
 
     def _faiss_dir(self) -> Path:
         return self._persist_dir / f"{self._name}_faiss"
+
+    def _split_document(self, doc: Document, doc_id: str) -> List[Document]:
+        if len(doc.page_content) <= self._chunk_size:
+            metadata = dict(doc.metadata or {})
+            metadata["id"] = doc_id
+            return [Document(page_content=doc.page_content, metadata=metadata)]
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self._chunk_size,
+            chunk_overlap=self._chunk_overlap,
+        )
+        chunks = splitter.split_documents([doc])
+        docs: List[Document] = []
+        for idx, chunk in enumerate(chunks):
+            metadata = dict(chunk.metadata or {})
+            metadata["parent_id"] = doc_id
+            metadata["id"] = f"{doc_id}::chunk-{idx}"
+            metadata["chunk_index"] = idx
+            docs.append(Document(page_content=chunk.page_content, metadata=metadata))
+        return docs
