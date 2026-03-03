@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import time
 from typing import Any
 
 
@@ -44,7 +45,7 @@ logger = get_logger(__name__)
 class AgentLoopRunner(RunnerAPI):
     def __init__(
         self,
-        recursion_limit: int = 20,
+        recursion_limit: int = 50,
     ):
         self._recursion_limit = recursion_limit
 
@@ -114,6 +115,12 @@ class AgentLoopRunner(RunnerAPI):
 
     def _build(self, ctx: RunnerContext):
         @before_agent
+        def _sleep(state: AgentState, runtime: Runtime) -> dict[str, Any]:
+            logger.info("sleep...")
+            time.sleep(5)
+            return {}
+
+        @before_agent
         def _inject_long_term_memories(
             state: AgentState, runtime: Runtime
         ) -> dict[str, Any] | None:
@@ -175,6 +182,7 @@ class AgentLoopRunner(RunnerAPI):
             model=ctx.large_llm_api,
             tools=tools,
             middleware=[
+                _sleep,
                 _inject_long_term_memories,
                 summarization,
                 clearToolResult,

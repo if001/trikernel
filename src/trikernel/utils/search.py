@@ -13,8 +13,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 class HybridSearchIndex:
-    _chunk_size = 800
-    _chunk_overlap = 150
+    _chunk_size = 1000
+    _chunk_overlap = 200
 
     def __init__(self, persist_dir: Path, name: str, embeddings: Embeddings) -> None:
         self._persist_dir = persist_dir
@@ -42,12 +42,8 @@ class HybridSearchIndex:
             if existing.metadata.get("id") != doc_id
             and existing.metadata.get("parent_id") != doc_id
         ]
-        for v in self._docs:
-            print(len(v.dict()["page_content"]))
-        print("=" * 20)
+
         self._docs.extend(self._split_document(doc, doc_id))
-        for v in self._docs:
-            print(len(v.dict()["page_content"]))
         self._rebuild_indexes()
         self._persist_docs()
 
