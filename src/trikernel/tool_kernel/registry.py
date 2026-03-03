@@ -13,7 +13,7 @@ from .tools.system_tools import build_system_tools
 from .tools.writing_tools import build_writing_tools
 
 
-def register_default_tools(kernel: ToolKernel, *, store: BaseStore) -> None:
+def register_default_tools(kernel: ToolKernel) -> None:
     tools: Iterable[BaseTool] = (
         build_state_tools()
         + build_system_tools()

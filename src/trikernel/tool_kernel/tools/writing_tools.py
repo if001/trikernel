@@ -75,78 +75,101 @@ class GenerateArgs(BaseModel):
 
 
 def summarize_text(
-    payload: SummarizeArgs,
+    text: str,
+    max_length: Optional[int] = None,
+    style: Optional[str] = None,
+    language: Optional[str] = "Japanese",
+    *,
     state: Annotated[dict, InjectedState],
 ) -> Dict[str, object]:
     llm_api = _require_llm(state)
     prompt = build_summary_prompt(
-        text=payload.text,
-        max_length=payload.max_length,
-        style=payload.style,
-        language=payload.language,
+        text=text,
+        max_length=max_length,
+        style=style,
+        language=language,
     )
     response_text = llm_api.generate(prompt, [])
     return _parse_json_or_text(response_text)
 
 
 def extract_corresponding(
-    payload: ExtractArgs,
+    source_text: str,
+    target_text: str,
+    criteria: Optional[str] = None,
+    language: Optional[str] = "Japanese",
+    *,
     state: Annotated[dict, InjectedState],
 ) -> Dict[str, object]:
     llm_api = _require_llm(state)
     prompt = build_extract_prompt(
-        source_text=payload.source_text,
-        target_text=payload.target_text,
-        criteria=payload.criteria,
-        language=payload.language,
+        source_text=source_text,
+        target_text=target_text,
+        criteria=criteria,
+        language=language,
     )
     response_text = llm_api.generate(prompt, [])
     return _parse_json_or_text(response_text)
 
 
 def create_outline(
-    payload: OutlineArgs,
+    user_input: Optional[str] = None,
+    tool_results: Optional[List[str]] = None,
+    article_type: Optional[str] = None,
+    audience: Optional[str] = None,
+    language: Optional[str] = "Japanese",
+    *,
     state: Annotated[dict, InjectedState],
 ) -> Dict[str, object]:
     llm_api = _require_llm(state)
     prompt = build_outline_prompt(
-        user_input=payload.user_input,
-        tool_results=payload.tool_results,
-        article_type=payload.article_type,
-        audience=payload.audience,
-        language=payload.language,
+        user_input=user_input,
+        tool_results=tool_results,
+        article_type=article_type,
+        audience=audience,
+        language=language,
     )
     response_text = llm_api.generate(prompt, [])
     return _parse_json_or_text(response_text)
 
 
 def polish_article(
-    payload: PolishArgs,
+    draft: str,
+    article_type: Optional[str] = None,
+    audience: Optional[str] = None,
+    language: Optional[str] = "Japanese",
+    *,
     state: Annotated[dict, InjectedState],
 ) -> Dict[str, object]:
     llm_api = _require_llm(state)
     prompt = build_polish_prompt(
-        draft=payload.draft,
-        article_type=payload.article_type,
-        audience=payload.audience,
-        language=payload.language,
+        draft=draft,
+        article_type=article_type,
+        audience=audience,
+        language=language,
     )
     response_text = llm_api.generate(prompt, [])
     return _parse_json_or_text(response_text)
 
 
 def generate_article(
-    payload: GenerateArgs,
+    article_type: str,
+    audience: str,
+    draft: str,
+    revisions: Optional[List[str]] = None,
+    outline: Optional[str] = None,
+    language: Optional[str] = "Japanese",
+    *,
     state: Annotated[dict, InjectedState],
 ) -> Dict[str, object]:
     llm_api = _require_llm(state)
     prompt = build_article_prompt(
-        article_type=payload.article_type,
-        audience=payload.audience,
-        revisions=payload.revisions,
-        outline=payload.outline,
-        draft=payload.draft,
-        language=payload.language,
+        article_type=article_type,
+        audience=audience,
+        revisions=revisions,
+        outline=outline,
+        draft=draft,
+        language=language,
     )
     response_text = llm_api.generate(prompt, [])
     return _parse_json_or_text(response_text)
@@ -161,6 +184,7 @@ def build_writing_tools() -> List[BaseTool]:
                 "Summarize long text into a shorter form with optional max length/style/language.\n"
                 "Use to compress tool results before adding them to prompts/artifacts."
             ),
+            args_schema=SummarizeArgs,
         ),
         StructuredTool.from_function(
             extract_corresponding,
@@ -169,6 +193,7 @@ def build_writing_tools() -> List[BaseTool]:
                 "Extract specific information from target_text, guided by source_text and optional criteria.\n"
                 "Use when you have a reference schema/template and want structured selection."
             ),
+            args_schema=ExtractArgs,
         ),
         StructuredTool.from_function(
             create_outline,
@@ -177,11 +202,13 @@ def build_writing_tools() -> List[BaseTool]:
                 "Create an article outline from user intent and tool result summaries.\n"
                 "Use when the user asks for a written deliverable (blog, doc, report)."
             ),
+            args_schema=OutlineArgs,
         ),
         StructuredTool.from_function(
             polish_article,
             name="article.polish",
             description="Improve clarity/structure/tone of an article draft for a target audience.",
+            args_schema=PolishArgs,
         ),
         StructuredTool.from_function(
             generate_article,
@@ -190,6 +217,7 @@ def build_writing_tools() -> List[BaseTool]:
                 "Generate a full article from an outline and/or draft + revision points.\n"
                 "Use for final deliverable generation, not for internal reasoning."
             ),
+            args_schema=GenerateArgs,
         ),
     ]
 

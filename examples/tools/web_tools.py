@@ -75,25 +75,26 @@ def web_list(
 
 
 def web_page(
-    payload: WebPageArgs,
-    state: Annotated[dict, InjectedState],
+    url: str,
+    state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
     _ = state
     config = load_web_client_config()
-    payload_dict = {"urls": payload.url}
+    payload_dict = {"urls": url}
     return _post_json(f"{config.base_url}/page", payload_dict)
 
 
 def web_page_ref(
-    payload: WebPageArgs,
-    state: Annotated[dict, InjectedState],
+    url: str,
+    state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
+    print("call web page ref!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
     state_api = _require_state_api(state)
-    response = web_page(payload, state=state)
+    response = web_page(url, state=state)
     artifact_id = state_api.artifact_write(
         "application/json",
         json.dumps(response, ensure_ascii=False),
-        {"source": "web.page", "url": payload.url},
+        {"source": "web.page", "url": url},
     )
     path = state_api.get_artifact_path(artifact_id)
     return {"artifact_id": artifact_id, "content_path": path}
@@ -177,6 +178,7 @@ def build_web_tools() -> List[BaseTool]:
                 "Fetch one or more web pages and store the extracted text as artifacts."
                 "Use artifact.search to retrieve relevant pages later by meaning, then artifact.read / artifact.extract to consume them."
             ),
+            args_schema=WebPageArgs,
         ),
     ]
 
@@ -281,20 +283,3 @@ def build_web_tools_for_deep_agent() -> List[BaseTool]:
             description="Fetch a web page and store it under /memories/pages/ as a markdown file. Returns saved_path.",
         ),
     ]
-
-
-@dataclass
-class Hoge:
-    name: str
-    age: int
-
-
-if __name__ == "__main__":
-    config = load_web_client_config()
-    payload_dict = {
-        "urls": "https://docs.langchain.com/oss/python/langchain/middleware/custom"
-    }
-    base = f"{config.base_url}/page"
-    print("base", base)
-    result = _post_json(base, payload_dict)
-    print(result)

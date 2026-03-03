@@ -24,11 +24,11 @@ def _require_state_api(state: dict) -> StateKernelAPI:
     return state_api
 
 
-class UserRequestPayload(BaseModel):
+class TaskCreateUserRequestArgs(BaseModel):
     user_message: str = Field(..., description="User message for the main runner.")
 
 
-class WorkPayload(BaseModel):
+class TaskCreateWorkArgs(BaseModel):
     message: str = Field(
         ..., description="Work instruction message(with details) for the worker."
     )
@@ -43,7 +43,14 @@ class WorkPayload(BaseModel):
     )
 
 
-class WorkRepeatPayload(BaseModel):
+class TaskCreateWorkAtArgs(BaseModel):
+    message: str = Field(
+        ..., description="Work instruction message(with details) for the worker."
+    )
+    run_at: str = Field(..., description="ISO8601 timestamp for scheduling.")
+
+
+class TaskCreateWorkRepeatArgs(BaseModel):
     message: str = Field(
         ..., description="Work instruction message(with details) for the worker."
     )
@@ -55,39 +62,12 @@ class WorkRepeatPayload(BaseModel):
     )
 
 
-class WorkAtPayload(BaseModel):
-    message: str = Field(
-        ..., description="Work instruction message(with details) for the worker."
-    )
-    run_at: str = Field(..., description="ISO8601 timestamp for scheduling.")
-
-
-class NotificationPayload(BaseModel):
+class TaskCreateNotificationArgs(BaseModel):
     message: str = Field(..., description="Notification message to deliver.")
     severity: Optional[str] = Field(default=None, description="Optional severity.")
     related_task_id: Optional[str] = Field(
         default=None, description="Related task id, if any."
     )
-
-
-class TaskCreateUserRequestArgs(BaseModel):
-    payload: UserRequestPayload
-
-
-class TaskCreateWorkArgs(BaseModel):
-    payload: WorkPayload
-
-
-class TaskCreateWorkAtArgs(BaseModel):
-    payload: WorkAtPayload
-
-
-class TaskCreateWorkRepeatArgs(BaseModel):
-    payload: WorkRepeatPayload
-
-
-class TaskCreateNotificationArgs(BaseModel):
-    payload: NotificationPayload
 
 
 class TaskUpdateArgs(BaseModel):
@@ -101,7 +81,7 @@ class TaskGetArgs(BaseModel):
 
 class TaskListArgs(BaseModel):
     task_type: Optional[str] = Field(default=None, description="Filter by task type.")
-    state: Optional[str] = Field(default="queued", description="Filter by state.")
+    task_state: Optional[str] = Field(default="queued", description="Filter by state.")
 
 
 class TaskClaimArgs(BaseModel):
@@ -138,143 +118,161 @@ class ArtifactSearchArgs(BaseModel):
     query: Dict[str, object] = Field(..., description="Metadata query.")
 
 
-class EmptyArgs(BaseModel):
-    pass
-
-
 def task_create_user_request(
-    payload: TaskCreateUserRequestArgs,
+    user_message: str,
     state: Annotated[dict, InjectedState],
 ) -> str:
     state_api = _require_state_api(state)
-    return state_api.task_create("user_request", payload.payload.model_dump())
+    return state_api.task_create("user_request", {"user_message": user_message})
 
 
 def task_create_work(
-    payload: TaskCreateWorkArgs,
+    message: str,
+    run_at: Optional[str] = None,
+    repeat_interval_seconds: Optional[int] = None,
+    repeat_enabled: Optional[bool] = None,
+    *,
     state: Annotated[dict, InjectedState],
 ) -> str:
     state_api = _require_state_api(state)
-    return state_api.task_create("work", payload.payload.model_dump())
+    payload = {
+        "message": message,
+        "run_at": run_at,
+        "repeat_interval_seconds": repeat_interval_seconds,
+        "repeat_enabled": repeat_enabled,
+    }
+    return state_api.task_create("work", payload)
 
 
 def task_create_work_at(
-    payload: TaskCreateWorkAtArgs,
+    message: str,
+    run_at: str,
     state: Annotated[dict, InjectedState],
 ) -> str:
-    run_at = payload.payload.run_at
     _validate_run_at(str(run_at))
     state_api = _require_state_api(state)
-    return state_api.task_create("work", payload.payload.model_dump())
+    return state_api.task_create("work", {"message": message, "run_at": run_at})
 
 
 def task_create_work_repeat(
-    payload: TaskCreateWorkRepeatArgs,
+    message: str,
+    repeat_interval_seconds: int,
+    repeat_enabled: Optional[bool] = None,
+    *,
     state: Annotated[dict, InjectedState],
 ) -> str:
-    interval = payload.payload.repeat_interval_seconds
-    if int(interval) < 3600:
+    if int(repeat_interval_seconds) < 3600:
         raise ValueError("repeat_interval_seconds must be >= 3600")
-    payload_dict = payload.payload.model_dump()
-    payload_dict.setdefault("repeat_enabled", True)
+    payload = {
+        "message": message,
+        "repeat_interval_seconds": repeat_interval_seconds,
+        "repeat_enabled": True if repeat_enabled is None else repeat_enabled,
+    }
     state_api = _require_state_api(state)
-    return state_api.task_create("work", payload_dict)
+    return state_api.task_create("work", payload)
 
 
 def task_create_notification(
-    payload: TaskCreateNotificationArgs,
-    state: Annotated[dict, InjectedState],
+    message: str,
+    severity: Optional[str] = None,
+    related_task_id: Optional[str] = None,
+    state: Annotated[dict, InjectedState] = {},
 ) -> str:
     state_api = _require_state_api(state)
-    return state_api.task_create("notification", payload.payload.model_dump())
+    payload = {
+        "message": message,
+        "severity": severity,
+        "related_task_id": related_task_id,
+    }
+    return state_api.task_create("notification", payload)
 
 
 def task_update(
-    payload: TaskUpdateArgs,
-    state: Annotated[dict, InjectedState],
+    task_id: str,
+    patch: Dict[str, object],
+    state: Annotated[dict, InjectedState] = {},
 ) -> Optional[Dict[str, Any]]:
     state_api = _require_state_api(state)
-    task = state_api.task_update(payload.task_id, payload.patch)
+    task = state_api.task_update(task_id, patch)
     return task.to_dict() if task else None
 
 
 def task_get(
-    payload: TaskGetArgs,
-    state: Annotated[dict, InjectedState],
+    task_id: str,
+    state: Annotated[dict, InjectedState] = {},
 ) -> Optional[Dict[str, Any]]:
     state_api = _require_state_api(state)
-    task = state_api.task_get(payload.task_id)
+    task = state_api.task_get(task_id)
     return task.to_dict() if task else None
 
 
 def task_list(
-    payload: TaskListArgs,
-    state: Annotated[dict, InjectedState],
+    task_type: Optional[str] = None,
+    task_state: Optional[str] = "queued",
+    state: Annotated[dict, InjectedState] = {},
 ) -> List[Dict[str, Any]]:
     state_api = _require_state_api(state)
-    return [
-        task.to_dict() for task in state_api.task_list(payload.task_type, payload.state)
-    ]
+    return [task.to_dict() for task in state_api.task_list(task_type, task_state)]
 
 
 def task_claim(
-    payload: TaskClaimArgs,
-    state: Annotated[dict, InjectedState],
+    filter_by: Dict[str, object],
+    claimer_id: str,
+    ttl_seconds: int,
+    state: Annotated[dict, InjectedState] = {},
 ) -> Optional[str]:
     state_api = _require_state_api(state)
-    return state_api.task_claim(
-        payload.filter_by, payload.claimer_id, payload.ttl_seconds
-    )
+    return state_api.task_claim(filter_by, claimer_id, ttl_seconds)
 
 
 def task_complete(
-    payload: TaskCompleteArgs,
-    state: Annotated[dict, InjectedState],
+    task_id: str,
+    state: Annotated[dict, InjectedState] = {},
 ) -> Optional[Dict[str, Any]]:
     state_api = _require_state_api(state)
-    task = state_api.task_complete(payload.task_id)
+    task = state_api.task_complete(task_id)
     return task.to_dict() if task else None
 
 
 def task_fail(
-    payload: TaskFailArgs,
-    state: Annotated[dict, InjectedState],
+    task_id: str,
+    error_info: Dict[str, object],
+    state: Annotated[dict, InjectedState] = {},
 ) -> Optional[Dict[str, Any]]:
     state_api = _require_state_api(state)
-    task = state_api.task_fail(payload.task_id, payload.error_info)
+    task = state_api.task_fail(task_id, error_info)
     return task.to_dict() if task else None
 
 
 def artifact_write(
-    payload: ArtifactWriteArgs,
-    state: Annotated[dict, InjectedState],
+    media_type: str,
+    body: str,
+    metadata: Dict[str, object],
+    state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
     state_api = _require_state_api(state)
-    artifact_id = state_api.artifact_write(
-        payload.media_type, payload.body, payload.metadata
-    )
-
-
-    return {"artifact_id": artifact_id, "content_path": }
+    artifact_id = state_api.artifact_write(media_type, body, metadata)
+    return {"artifact_id": artifact_id}
 
 
 def artifact_read(
-    payload: ArtifactReadArgs,
-    state: Annotated[dict, InjectedState],
+    artifact_id: str,
+    state: Annotated[dict, InjectedState] = {},
 ) -> Optional[Dict[str, Any]]:
     state_api = _require_state_api(state)
-    artifact = state_api.artifact_read(payload.artifact_id)
+    artifact = state_api.artifact_read(artifact_id)
     return artifact.to_full_dict() if artifact else None
 
 
 def artifact_extract(
-    payload: ArtifactExtractArgs,
-    state: Annotated[dict, InjectedState],
+    artifact_id: str,
+    instructions: str,
+    state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
     state_api = _require_state_api(state)
-    artifact = state_api.artifact_read(payload.artifact_id)
+    artifact = state_api.artifact_read(artifact_id)
     if not artifact:
-        return {"artifact_id": payload.artifact_id, "error": "not_found"}
+        return {"artifact_id": artifact_id, "error": "not_found"}
 
     llm_api = state.get("llm_api") if isinstance(state, dict) else None
     if llm_api is None and isinstance(state, dict):
@@ -282,29 +280,22 @@ def artifact_extract(
         if isinstance(runtime_id, str):
             llm_api = get_llm_api(runtime_id)
     if not llm_api:
-        return {"artifact_id": payload.artifact_id, "error": "llm_api_required"}
+        return {"artifact_id": artifact_id, "error": "llm_api_required"}
 
-    prompt = f"extract instructions: {payload.instructions}\n{artifact.body}"
+    prompt = f"extract instructions: {instructions}\n{artifact.body}"
     extracted = llm_api.generate(prompt, [])
-    return {"artifact_id": payload.artifact_id, "result": extracted}
+    return {"artifact_id": artifact_id, "result": extracted}
 
 
 def artifact_search(
-    payload: ArtifactSearchArgs,
-    state: Annotated[dict, InjectedState],
+    query: Dict[str, object],
+    state: Annotated[dict, InjectedState] = {},
 ) -> List[Dict[str, Any]]:
     state_api = _require_state_api(state)
-    return [
-        artifact.to_small_dict()
-        for artifact in state_api.artifact_search(payload.query)
-    ]
+    return [artifact.to_small_dict() for artifact in state_api.artifact_search(query)]
 
 
-def artifact_list(
-    payload: EmptyArgs,
-    state: Annotated[dict, InjectedState],
-) -> List[Dict[str, Any]]:
-    _ = payload
+def artifact_list(state: Annotated[dict, InjectedState]) -> List[Dict[str, Any]]:
     state_api = _require_state_api(state)
     artifacts = state_api.artifact_list()
     result = []
@@ -336,6 +327,7 @@ def build_state_tools() -> List[BaseTool]:
                 "Not for scheduling; for time-based or periodic runs use task.create_work_at / task.create_work_repeat.\n"
                 "The worker runtime will always emit a notification at the end (not via this tool call)."
             ),
+            args_schema=TaskCreateWorkArgs,
         ),
         StructuredTool.from_function(
             task_create_work_at,
@@ -345,6 +337,7 @@ def build_state_tools() -> List[BaseTool]:
                 "Use for reminders, delayed checks, or actions that must happen at a certain time.\n"
                 "Not for deep-work offloading; use task.create_work if the goal is to exceed main-loop tool budget."
             ),
+            args_schema=TaskCreateWorkAtArgs,
         ),
         StructuredTool.from_function(
             task_create_work_repeat,
@@ -354,6 +347,7 @@ def build_state_tools() -> List[BaseTool]:
                 "Use for periodic monitoring/digests/maintenance.\n"
                 "Each run will end with a notification emitted by the worker runtime."
             ),
+            args_schema=TaskCreateWorkRepeatArgs,
         ),
         # StructuredTool.from_function(
         #     task_create_notification,
@@ -369,11 +363,13 @@ def build_state_tools() -> List[BaseTool]:
             task_get,
             name="task.get",
             description="Fetch a task by id for debugging, tracing, or runner logic.",
+            args_schema=TaskGetArgs,
         ),
         StructuredTool.from_function(
             task_list,
             name="task.list",
             description="List tasks by type/state for runner polling, dashboards, or maintenance.",
+            args_schema=TaskListArgs,
         ),
         # StructuredTool.from_function(
         #     task_claim,
@@ -390,44 +386,48 @@ def build_state_tools() -> List[BaseTool]:
         #     name="task.fail",
         #     description="Mark a task as failed.",
         # ),
-        # StructuredTool.from_function(
-        #     artifact_write,
-        #     name="artifact.write",
-        #     description=(
-        #         "Persist an artifact (text body + media_type + metadata) for later retrieval via semantic search and reuse across steps/workers.\n"
-        #         "Use to store fetched web content, intermediate results, or user-requested temporary notes."
-        #     ),
-        # ),
-        # StructuredTool.from_function(
-        #     artifact_read,
-        #     name="artifact.read",
-        #     description=(
-        #         "Read a stored artifact by id (returns full body).\n"
-        #         "Use when you already know the exact artifact to reuse."
-        #     ),
-        # ),
-        # StructuredTool.from_function(
-        #     artifact_extract,
-        #     name="artifact.extract",
-        #     description=(
-        #         "Run LLM-based extraction over an artifact specified by id using provided instructions (e.g., pull facts, make bullet notes, extract entities).\n"
-        #         "Use after artifact.search when the body is long and you only need specific information; prefer this over artifact.read when possible."
-        #     ),
-        # ),
-        # StructuredTool.from_function(
-        #     artifact_search,
-        #     name="artifact.search",
-        #     description=(
-        #         "Semantic search over stored artifacts using an embedding query against artifact bodies.\n"
-        #         "Returns artifact IDs only (and optionally scores if available).\n"
-        #         "Use to locate relevant artifacts, then call artifact.read to fetch the body or artifact.extract to pull targeted information."
-        #     ),
-        # ),
-        # StructuredTool.from_function(
-        #     artifact_list,
-        #     name="artifact.list",
-        #     description="List stored artifacts for inspection/debugging. Prefer artifact.search for finding relevant artifacts by meaning.",
-        # ),
+        StructuredTool.from_function(
+            artifact_write,
+            name="artifact.write",
+            description=(
+                "Persist an artifact (text body + media_type + metadata) for later retrieval via semantic search and reuse across steps/workers.\n"
+                "Use to store fetched web content, intermediate results, or user-requested temporary notes."
+            ),
+            args_schema=ArtifactWriteArgs,
+        ),
+        StructuredTool.from_function(
+            artifact_read,
+            name="artifact.read",
+            description=(
+                "Read a stored artifact by id (returns full body).\n"
+                "Use when you already know the exact artifact to reuse."
+            ),
+            args_schema=ArtifactReadArgs,
+        ),
+        StructuredTool.from_function(
+            artifact_extract,
+            name="artifact.extract",
+            description=(
+                "Run LLM-based extraction over an artifact specified by id using provided instructions (e.g., pull facts, make bullet notes, extract entities).\n"
+                "Use after artifact.search when the body is long and you only need specific information; prefer this over artifact.read when possible."
+            ),
+            args_schema=ArtifactExtractArgs,
+        ),
+        StructuredTool.from_function(
+            artifact_search,
+            name="artifact.search",
+            description=(
+                "Semantic search over stored artifacts using an embedding query against artifact bodies.\n"
+                "Returns artifact IDs only (and optionally scores if available).\n"
+                "Use to locate relevant artifacts, then call artifact.read to fetch the body or artifact.extract to pull targeted information."
+            ),
+            args_schema=ArtifactSearchArgs,
+        ),
+        StructuredTool.from_function(
+            artifact_list,
+            name="artifact.list",
+            description="List stored artifacts for inspection/debugging. Prefer artifact.search for finding relevant artifacts by meaning.",
+        ),
     ]
 
 

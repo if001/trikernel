@@ -44,7 +44,11 @@ class StepGoalArgs(BaseModel):
 
 
 def step_goal(
-    payload: StepGoalArgs,
+    previous_goal: Optional[str] = None,
+    step_context: Optional[Dict[str, object]] = None,
+    user_message: Optional[str] = None,
+    failure_reason: Optional[str] = None,
+    *,
     state: Annotated[dict, InjectedState],
 ) -> Dict[str, Any]:
     state_api = _require_state_api(state)
@@ -60,16 +64,16 @@ def step_goal(
         or payload_data.get("user_message")
         or payload_data.get("message")
         or payload_data.get("prompt")
-        or payload.user_message
-        or payload.previous_goal
+        or user_message
+        or previous_goal
         or json.dumps(payload_data, ensure_ascii=False)
     )
     llm_api = _require_llm_api(state)
     prompt = build_step_goal_prompt(
-        previous_goal=payload.previous_goal,
-        failure_reason=payload.failure_reason,
-        step_context=payload.step_context,
-        user_message=payload.user_message,
+        previous_goal=previous_goal,
+        failure_reason=failure_reason,
+        step_context=step_context,
+        user_message=user_message,
         task_payload=payload_data,
         history=[],
     )
@@ -93,5 +97,6 @@ def build_system_tools() -> list[BaseTool]:
                 "Propose/refine the next step goal given the current context (including failure reason).\n"
                 "Use at the start of each tool-execution loop iteration to keep actions aligned with the user’s intent."
             ),
+            args_schema=StepGoalArgs,
         )
     ]
