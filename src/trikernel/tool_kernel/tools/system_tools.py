@@ -8,7 +8,7 @@ from langgraph.prebuilt import InjectedState
 from pydantic import Field
 from typing_extensions import Annotated
 
-from ..prompts import build_step_goal_prompt
+from .prompts import build_step_goal_prompt
 from ..runtime import get_llm_api, get_state_api
 
 
@@ -39,7 +39,8 @@ def step_goal(
         Optional[str], Field(default=None, description="Previous goal.")
     ] = None,
     step_context: Annotated[
-        Optional[Dict[str, object]], Field(default=None, description="Step context snapshot.")
+        Optional[Dict[str, object]],
+        Field(default=None, description="Step context snapshot."),
     ] = None,
     user_message: Annotated[
         Optional[str], Field(default=None, description="User message.")

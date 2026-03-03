@@ -10,7 +10,7 @@ from typing_extensions import Annotated
 
 from trikernel.utils.logging import get_logger
 
-from .writing_prompts import (
+from .prompts import (
     build_article_prompt,
     build_extract_prompt,
     build_outline_prompt,
