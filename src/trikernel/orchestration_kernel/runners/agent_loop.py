@@ -4,25 +4,18 @@ import time
 from typing import Any
 
 
-from langchain_core.messages import (
-    AIMessage,
-    HumanMessage,
-    SystemMessage,
-)
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain.chat_models import BaseChatModel
 
 from langchain.agents import create_agent
-from langchain_core.prompts import HumanMessagePromptTemplate
 from langgraph.runtime import Runtime
 from langchain.agents.middleware import (
-    before_model,
-    after_model,
     before_agent,
     AgentState,
     LLMToolSelectorMiddleware,
     SummarizationMiddleware,
     ClearToolUsesEdit,
     ContextEditingMiddleware,
-    ClearToolUsesEdit,
     FilesystemFileSearchMiddleware,
 )
 
@@ -31,12 +24,17 @@ from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 
 from ..logging import get_logger
 from ._shared import history_messages
-from ..models import RunResult, RunnerContext
+from ..models import RunResult
 from ..payloads import extract_llm_input, extract_user_message
+from ..runtime import build_runnable_config
 from .prompts import (
     build_agent_prompt,
 )
 from ...state_kernel.models import Task
+from ...state_kernel.protocols import StateKernelAPI
+from ...state_kernel.core.message_store_interface import MessageStoreProtocol
+from ...tool_kernel.kernel import ToolKernel
+from langgraph.store.base import BaseStore
 
 
 logger = get_logger(__name__)
@@ -45,13 +43,31 @@ logger = get_logger(__name__)
 class AgentLoopRunner(RunnerAPI):
     def __init__(
         self,
+        *,
+        state_api: StateKernelAPI,
+        tool_api: ToolKernel,
+        message_store: MessageStoreProtocol,
+        store: BaseStore,
+        llm_api: BaseChatModel,
+        large_llm_api: BaseChatModel,
         recursion_limit: int = 50,
     ):
+        self._state_api = state_api
+        self._tool_api = tool_api
+        self._message_store = message_store
+        self._store = store
+        self._llm_api = llm_api
+        self._large_llm_api = large_llm_api
         self._recursion_limit = recursion_limit
 
-    def run(self, task: Task, runner_context: RunnerContext) -> RunResult:
+    def run(
+        self,
+        task: Task,
+        *,
+        conversation_id: str,
+        stream: bool = False,
+    ) -> RunResult:
         try:
-            ctx = runner_context
             user_message = extract_user_message(extract_llm_input(task.payload or {}))
             if not user_message:
                 return RunResult(
@@ -61,14 +77,13 @@ class AgentLoopRunner(RunnerAPI):
                     error={"code": "MISSING_MESSAGE", "message": "message is required"},
                     stream_chunks=[],
                 )
-            agent = self._build(ctx)
-            config = {
-                "recursion_limit": self._recursion_limit,
-                "configurable": {
-                    "thread_id": ctx.conversation_id,
-                    "langgraph_user_id": ctx.conversation_id,
-                },
-            }
+            agent = self._build()
+            config = build_runnable_config(
+                conversation_id=conversation_id,
+                state_api=self._state_api,
+                tool_api=self._tool_api,
+                recursion_limit=self._recursion_limit,
+            )
             result = agent.invoke(
                 {"messages": [HumanMessage(content=user_message)]},
                 config,
@@ -113,7 +128,7 @@ class AgentLoopRunner(RunnerAPI):
                 stream_chunks=[],
             )
 
-    def _build(self, ctx: RunnerContext):
+    def _build(self):
         @before_agent
         def _sleep(state: AgentState, runtime: Runtime) -> dict[str, Any]:
             logger.info("sleep...")
@@ -132,7 +147,9 @@ class AgentLoopRunner(RunnerAPI):
             only_history = history_messages(msgs)
 
             query = getattr(msgs[-1], "content", "") or ""
-            memory_kernel = ctx.state_api.memory_kernel(ctx.conversation_id)
+            memory_kernel = self._state_api.memory_kernel(
+                runtime.config.get("configurable", {}).get("runtime_id", "default")
+            )
             memory_text = ""
             if memory_kernel is None:
                 logger.warning("memory_kernel is None")
@@ -153,12 +170,12 @@ class AgentLoopRunner(RunnerAPI):
             return {"messages": [SystemMessage(content=system), *only_history]}
 
         selector = LLMToolSelectorMiddleware(
-            model=ctx.llm_api,
+            model=self._llm_api,
             max_tools=4,
             always_include=[],
         )
         summarization = SummarizationMiddleware(
-            model=ctx.large_llm_api,
+            model=self._large_llm_api,
             trigger=("messages", 10),
             keep=("messages", 5),
         )
@@ -177,9 +194,9 @@ class AgentLoopRunner(RunnerAPI):
             max_file_size_mb=10,  # 大きすぎるファイルはスキップ
         )
 
-        tools = ctx.tool_api.tool_structured_list()
+        tools = self._tool_api.tool_structured_list()
         agent = create_agent(
-            model=ctx.large_llm_api,
+            model=self._large_llm_api,
             tools=tools,
             middleware=[
                 _sleep,
@@ -189,7 +206,7 @@ class AgentLoopRunner(RunnerAPI):
                 selector,
                 fsSearch,
             ],
-            store=ctx.store,
-            checkpointer=ctx.message_store.checkpointer,
+            store=self._store,
+            checkpointer=self._message_store.checkpointer,
         )
         return agent

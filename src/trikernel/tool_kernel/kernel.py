@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..utils.env import load_env
 from langchain_core.documents import Document
@@ -11,6 +11,8 @@ from langchain_core.tools import BaseTool
 from langchain_ollama import OllamaEmbeddings
 
 from ..utils.search import HybridSearchIndex
+from .ollama import ToolOllamaLLM
+from .protocols import ToolLLMBase
 
 
 @dataclass
@@ -19,12 +21,18 @@ class ToolEntry:
 
 
 class ToolKernel:
-    def __init__(self, data_dir: Optional[Path] = None, re_index: bool = False) -> None:
+    def __init__(
+        self,
+        data_dir: Optional[Path] = None,
+        re_index: bool = False,
+        tool_llm_api: Optional[ToolLLMBase] = None,
+    ) -> None:
         if data_dir is None:
             data_dir = Path(".state")
         self._tools: Dict[str, ToolEntry] = {}
         self._search_index = _init_tool_search(data_dir)
         self._re_index = re_index
+        self._tool_llm_api = tool_llm_api or ToolOllamaLLM()
 
     def tool_register(
         self,
@@ -74,6 +82,9 @@ class ToolKernel:
 
     def tool_structured_list(self) -> List[BaseTool]:
         return [entry.tool for entry in self._tools.values()]
+
+    def tool_llm_api(self) -> ToolLLMBase:
+        return self._tool_llm_api
 
     def _index_tool(self, tool: BaseTool, *, force: bool = False) -> None:
         metadata = {"tool_name": tool.name, "id": tool.name}

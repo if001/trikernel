@@ -1,28 +1,37 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from threading import Lock
-from typing import Optional
+from typing import Optional, Protocol
+
+from trikernel.tool_kernel.protocols import ToolLLMBase
 
 from ..state_kernel.protocols import StateKernelAPI
-from .protocols import ToolLLMBase
+
+
+class ToolAPIProtocol(Protocol):
+    def tool_structured_list(self): ...
+    def tool_search(self, query: str): ...
+    def tool_descriptions(self): ...
+    def tool_llm_api(self) -> ToolLLMBase: ...
+
+
+@dataclass(frozen=True)
+class ToolRuntime:
+    runtime_id: str
+    state_api: StateKernelAPI
+    tool_api: ToolAPIProtocol
 
 
 _state_lock = Lock()
-_state_apis: dict[str, StateKernelAPI] = {}
-_llm_apis: dict[str, ToolLLMBase] = {}
+_runtimes: dict[str, ToolRuntime] = {}
 
 
-def register_runtime(runtime_id: str, state_api: StateKernelAPI, llm_api: ToolLLMBase) -> None:
+def register_runtime(runtime: ToolRuntime) -> None:
     with _state_lock:
-        _state_apis[runtime_id] = state_api
-        _llm_apis[runtime_id] = llm_api
+        _runtimes[runtime.runtime_id] = runtime
 
 
-def get_state_api(runtime_id: str) -> Optional[StateKernelAPI]:
+def get_runtime(runtime_id: str) -> Optional[ToolRuntime]:
     with _state_lock:
-        return _state_apis.get(runtime_id)
-
-
-def get_llm_api(runtime_id: str) -> Optional[ToolLLMBase]:
-    with _state_lock:
-        return _llm_apis.get(runtime_id)
+        return _runtimes.get(runtime_id)

@@ -9,14 +9,14 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
+from langchain.tools import InjectedToolArg
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.prebuilt import InjectedState
-from pydantic import BaseModel, Field
+from pydantic import Field
 from typing_extensions import Annotated
 
-from trikernel.state_kernel.protocols import StateKernelAPI
-from trikernel.tool_kernel.config import load_ollama_config
-from trikernel.tool_kernel.runtime import get_state_api
+from trikernel.tool_kernel.runtime import ToolRuntime, get_runtime
+from langchain.tools import ToolRuntime as LCToolRuntime
 
 
 @dataclass(frozen=True)
@@ -38,16 +38,10 @@ def web_query(
 ) -> str:
     history = _history_from_state(state)
     messages = _build_query_messages(user_message, history)
-    config = load_ollama_config()
-    payload_dict = {
-        "model": config.small_model,
-        "messages": messages,
-        "stream": False,
-    }
-    response = _post_json(f"{config.base_url}/api/chat", payload_dict)
-    message = response.get("message", {})
-    content = message.get("content", "")
-    return content.strip()
+    prompt = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
+    runtime = _require_runtime(state)
+    response_text = runtime.tool_api.tool_llm_api().generate(prompt, [])
+    return response_text.strip()
 
 
 def web_list(
@@ -66,7 +60,7 @@ def web_list_ref(
     k: Optional[int] = Field(..., description="Number of results."),
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
-    state_api = _require_state_api(state)
+    state_api = _require_runtime(state).state_api
     config = load_web_client_config()
     payload_dict = {"q": q, "k": k}
     response = _post_json(f"{config.base_url}/list", payload_dict)
@@ -93,7 +87,7 @@ def web_page_ref(
     url: str = Field(..., description="Comma-separated URLs."),
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
-    state_api = _require_state_api(state)
+    state_api = _require_runtime(state).state_api
     response = web_page(url, state=state)
 
     artifact_id = state_api.artifact_write(
@@ -146,15 +140,14 @@ def _history_from_state(state: dict, limit: int = 6) -> List[Dict[str, str]]:
     return messages
 
 
-def _require_state_api(state: dict) -> StateKernelAPI:
-    state_api = state.get("state_api") if isinstance(state, dict) else None
-    if state_api is None and isinstance(state, dict):
-        runtime_id = state.get("runtime_id")
-        if isinstance(runtime_id, str):
-            state_api = get_state_api(runtime_id)
-    if state_api is None:
-        raise ValueError("state_api is required in state")
-    return state_api
+def _require_runtime(state: dict) -> ToolRuntime:
+    runtime_id = state.get("runtime_id") if isinstance(state, dict) else None
+    if not isinstance(runtime_id, str) or not runtime_id:
+        raise ValueError("runtime_id is required in state")
+    runtime = get_runtime(runtime_id)
+    if runtime is None:
+        raise ValueError("runtime is required in tool runtime registry")
+    return runtime
 
 
 def build_web_tools() -> List[BaseTool]:
@@ -190,10 +183,6 @@ def build_web_tools() -> List[BaseTool]:
     ]
 
 
-from langchain_core.tools import StructuredTool, InjectedToolArg
-from langchain.tools import ToolRuntime
-
-
 def _slugify(s: str, max_len: int = 60) -> str:
     s = re.sub(r"[^a-zA-Z0-9_-]+", "-", s).strip("-").lower()
     return s[:max_len] if s else "page"
@@ -202,7 +191,7 @@ def _slugify(s: str, max_len: int = 60) -> str:
 def web_list_and_store(
     q: str,
     k: Optional[int],
-    tool_runtime: Annotated[ToolRuntime, InjectedToolArg],
+    tool_runtime: Annotated[LCToolRuntime, InjectedToolArg],
 ) -> Dict[str, Any]:
     """
     args:
@@ -239,7 +228,7 @@ def web_list_and_store(
 
 def fetch_webpage_and_store(
     url: str,
-    tool_runtime: Annotated[ToolRuntime, InjectedToolArg],
+    tool_runtime: Annotated[LCToolRuntime, InjectedToolArg],
 ) -> dict:
     """
     Fetch a web page and store it into the deepagents virtual filesystem under /memories/.

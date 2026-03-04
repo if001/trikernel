@@ -2,21 +2,14 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
-from langchain.chat_models import BaseChatModel
-
 from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 from trikernel.utils.logging import get_logger
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langgraph.store.base import BaseStore
-
-from ..orchestration_kernel.models import RunResult, RunnerContext
+from ..orchestration_kernel.models import RunResult
 from ..state_kernel import LangMemMemoryManager
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI
-from ..state_kernel.core.message_store_interface import MessageStoreProtocol
-from ..tool_kernel.kernel import ToolKernel
-from ..tool_kernel.protocols import ToolLLMBase
 from .transports import ResultSender, WorkReceiver, ZmqResultSender, ZmqWorkReceiver
 
 logger = get_logger(__name__)
@@ -26,26 +19,16 @@ class WorkWorker:
     def __init__(
         self,
         state_api: StateKernelAPI,
-        message_store: MessageStoreProtocol,
-        tool_api: ToolKernel,
         runner: RunnerAPI,
-        llm_api: BaseChatModel,
-        tool_llm_api: ToolLLMBase,
         memory_manager: LangMemMemoryManager,
-        store: BaseStore,
         work_receiver: Optional[WorkReceiver] = None,
         result_sender: Optional[ResultSender] = None,
         work_endpoint: str = "inproc://trikernel-work",
         result_endpoint: str = "inproc://trikernel-work-results",
     ) -> None:
         self.state_api = state_api
-        self.message_store = message_store
-        self.tool_api = tool_api
         self.runner = runner
-        self.llm_api = llm_api
-        self.tool_llm_api = tool_llm_api
         self._memory_manager = memory_manager
-        self._store = store
         self._work_receiver = work_receiver or ZmqWorkReceiver(work_endpoint)
         self._result_sender = result_sender or ZmqResultSender(result_endpoint)
 
@@ -61,7 +44,7 @@ class WorkWorker:
         if _is_memory_task(task):
             result = await self._run_memory_task(task)
         else:
-            result = self._run_task(task, runner_id="worker")
+            result = self._run_task(task)
         try:
             await self._result_sender.send_json(
                 {
@@ -80,20 +63,13 @@ class WorkWorker:
                 {"code": "WORKER_SEND_FAILED", "message": "Failed to send result."},
             )
 
-    def _run_task(self, task: Task, runner_id: str) -> RunResult:
-        context = RunnerContext(
-            runner_id=runner_id,
-            conversation_id="default",
-            state_api=self.state_api,
-            message_store=self.message_store,
-            tool_api=self.tool_api,
-            llm_api=self.llm_api,
-            large_llm_api=self.llm_api,
-            tool_llm_api=self.tool_llm_api,
-            store=self._store,
-        )
+    def _run_task(self, task: Task) -> RunResult:
         try:
-            return self.runner.run(task, context)
+            return self.runner.run(
+                task,
+                conversation_id="default",
+                stream=False,
+            )
         except Exception:
             logger.error("worker task failed: %s", task.task_id, exc_info=True)
             return RunResult(

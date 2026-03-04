@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 import threading
 from typing import Any, Dict, List, Optional, Union
 
-from langchain.chat_models import BaseChatModel
 from langgraph.store.base import BaseStore
 
 from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
@@ -16,13 +15,10 @@ from trikernel.utils.logging import get_logger
 from .dispatcher import DispatchConfig, WorkDispatcher
 from .worker import WorkWorker
 from .loop import ExecutionLoop, LoopConfig
-from ..orchestration_kernel.models import RunResult, RunnerContext
+from ..orchestration_kernel.models import RunResult
 from ..state_kernel import LangMemMemoryManager
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI
-from ..state_kernel.core.message_store_interface import MessageStoreProtocol
-from ..tool_kernel.protocols import ToolLLMBase
-from ..tool_kernel.kernel import ToolKernel
 from .payloads import UserRequestPayload, WorkPayload
 
 logger = get_logger(__name__)
@@ -42,12 +38,7 @@ class TrikernelSession:
         self,
         *,
         state_api: StateKernelAPI,
-        tool_api: ToolKernel,
         runner: RunnerAPI,
-        llm_api: BaseChatModel,
-        large_llm_api: BaseChatModel,
-        tool_llm_api: ToolLLMBase,
-        message_store: MessageStoreProtocol,
         store: BaseStore,
         conversation_id: str = "default",
         runner_id: str = "main",
@@ -56,13 +47,7 @@ class TrikernelSession:
         enable_memory_updates: bool = True,
     ) -> None:
         self._state_api = state_api
-        self._tool_api = tool_api
         self._runner = runner
-        self._llm_api = llm_api
-        self._large_llm_api = large_llm_api
-        self._tool_llm_api = tool_llm_api
-        self._message_store = message_store
-        self._store = store
         self._memory_manager = LangMemMemoryManager(store)
         self._conversation_id = conversation_id
         self._runner_id = runner_id
@@ -179,13 +164,8 @@ class TrikernelSession:
         self._dispatcher = WorkDispatcher(self._state_api, config=dispatch_config)
         self._worker = WorkWorker(
             state_api=self._state_api,
-            message_store=self._message_store,
-            tool_api=self._tool_api,
             runner=self._runner,
-            llm_api=self._llm_api,
-            tool_llm_api=self._tool_llm_api,
             memory_manager=self._memory_manager,
-            store=self._store,
         )
         self._loop = ExecutionLoop(self._dispatcher, self._worker, loop_config)
 
@@ -218,20 +198,12 @@ class TrikernelSession:
         self._loop_task = None
 
     def _run_task(self, task: Task, stream: bool) -> RunResult:
-        context = RunnerContext(
-            runner_id=self._runner_id,
-            conversation_id=self._conversation_id,
-            state_api=self._state_api,
-            message_store=self._message_store,
-            tool_api=self._tool_api,
-            large_llm_api=self._large_llm_api,
-            llm_api=self._llm_api,
-            tool_llm_api=self._tool_llm_api,
-            store=self._store,
-            stream=stream,
-        )
         try:
-            return self._runner.run(task, context)
+            return self._runner.run(
+                task,
+                conversation_id=self._conversation_id,
+                stream=stream,
+            )
         except Exception:
             logger.error("main task failed: %s", task.task_id, exc_info=True)
             return RunResult(

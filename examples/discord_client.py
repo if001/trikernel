@@ -17,7 +17,7 @@ from trikernel.orchestration_kernel.runners.simple_tool_loop import (
     SimpleGraphToolLoopRunner,
 )
 from ui.discord_client_ui import DiscordBot, get_intents
-from trikernel.orchestration_kernel import get_logger, RunnerAPI
+from trikernel.orchestration_kernel import get_logger
 from trikernel.execution.session import TrikernelSession
 from trikernel.state_kernel import (
     create_state_kernel,
@@ -44,7 +44,7 @@ DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", -1))
 DISCORD_READ_CHANNEL_ID = int(os.getenv("DISCORD_READ_CHANNEL_ID", -1))
 
 
-async def runner_loop(ui: DiscordBot, runner: RunnerAPI) -> None:
+async def runner_loop(ui: DiscordBot) -> None:
     logger.info("runner_loop")
 
     llm = newOllamaClient()
@@ -52,7 +52,7 @@ async def runner_loop(ui: DiscordBot, runner: RunnerAPI) -> None:
     # gemini_llm = newGeiminiClient()
 
     tool_llm = ToolOllamaLLM()
-    tool_kernel = ToolKernel(re_index=False)
+    tool_kernel = ToolKernel(re_index=False, tool_llm_api=tool_llm)
 
     async with build_memory_store() as store, build_message_store() as message_store:
         state = create_state_kernel(store)
@@ -66,14 +66,42 @@ async def runner_loop(ui: DiscordBot, runner: RunnerAPI) -> None:
 
         # tool_kernel.debug()
 
-        session = TrikernelSession(
+        runner = SimpleGraphToolLoopRunner(
             state_api=state,
             tool_api=tool_kernel,
-            runner=runner,
-            large_llm_api=llm_cloud,
-            llm_api=llm,
-            tool_llm_api=tool_llm,
             message_store=message_store,
+            store=store,
+            llm_api=llm,
+            large_llm_api=llm_cloud,
+        )
+        # runner = DeepToolLoopRunner(
+        #     state_api=state,
+        #     tool_api=tool_kernel,
+        #     message_store=message_store,
+        #     store=store,
+        #     llm_api=llm,
+        #     large_llm_api=llm_cloud,
+        # )
+        # runner = AgentLoopRunner(
+        #     state_api=state,
+        #     tool_api=tool_kernel,
+        #     message_store=message_store,
+        #     store=store,
+        #     llm_api=llm,
+        #     large_llm_api=llm_cloud,
+        # )
+        # runner = DeepAgentLoopRunner(
+        #     state_api=state,
+        #     tool_api=tool_kernel,
+        #     message_store=message_store,
+        #     store=store,
+        #     llm_api=llm,
+        #     large_llm_api=llm_cloud,
+        # )
+
+        session = TrikernelSession(
+            state_api=state,
+            runner=runner,
             store=store,
         )
         session.start_workers()
@@ -131,14 +159,8 @@ async def runner_loop(ui: DiscordBot, runner: RunnerAPI) -> None:
 
 
 def main() -> None:
-    runner = SimpleGraphToolLoopRunner()
-    # runner = DeepToolLoopRunner()
-
-    ## create_agent/deep_agent, build_toolをagent用にする必要がある
-    # runner = AgentLoopRunner()
-    # runner = DeepAgentLoopRunner()
     intents = get_intents()
-    ui = DiscordBot(intents=intents, runner_loop=lambda bot: runner_loop(bot, runner))
+    ui = DiscordBot(intents=intents, runner_loop=lambda bot: runner_loop(bot))
     if not TOKEN:
         raise SystemExit("DISCORD_BOT_TOKEN が未設定です。")
     ui.run(TOKEN)

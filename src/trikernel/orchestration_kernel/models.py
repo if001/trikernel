@@ -4,15 +4,6 @@ from dataclasses import dataclass, field
 import json
 from typing import Any, Dict, List, Optional
 
-from langchain.chat_models import BaseChatModel
-
-from ..state_kernel.protocols import StateKernelAPI
-from ..state_kernel.core.message_store_interface import MessageStoreProtocol
-from ..tool_kernel.kernel import ToolKernel
-from langgraph.store.base import BaseStore
-from ..tool_kernel.protocols import ToolLLMBase
-
-
 @dataclass
 class LLMToolCall:
     tool_name: str
@@ -25,20 +16,6 @@ class LLMResponse:
     user_output: Optional[str]
     tool_calls: List[LLMToolCall] = field(default_factory=list)
     message: Optional[Any] = None
-
-
-@dataclass
-class RunnerContext:
-    runner_id: str
-    conversation_id: str
-    state_api: StateKernelAPI
-    message_store: MessageStoreProtocol
-    tool_api: ToolKernel
-    large_llm_api: BaseChatModel
-    llm_api: BaseChatModel
-    tool_llm_api: ToolLLMBase
-    store: BaseStore
-    stream: bool = False
 
 
 @dataclass

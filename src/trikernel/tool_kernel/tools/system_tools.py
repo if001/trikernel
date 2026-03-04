@@ -9,29 +9,17 @@ from pydantic import Field
 from typing_extensions import Annotated
 
 from .prompts import build_step_goal_prompt
-from ..runtime import get_llm_api, get_state_api
+from ..runtime import ToolRuntime, get_runtime
 
 
-def _require_state_api(state: dict) -> Any:
-    state_api = state.get("state_api") if isinstance(state, dict) else None
-    if state_api is None and isinstance(state, dict):
-        runtime_id = state.get("runtime_id")
-        if isinstance(runtime_id, str):
-            state_api = get_state_api(runtime_id)
-    if state_api is None:
-        raise ValueError("state_api is required in state")
-    return state_api
-
-
-def _require_llm_api(state: dict) -> Any:
-    llm_api = state.get("llm_api") if isinstance(state, dict) else None
-    if llm_api is None and isinstance(state, dict):
-        runtime_id = state.get("runtime_id")
-        if isinstance(runtime_id, str):
-            llm_api = get_llm_api(runtime_id)
-    if llm_api is None:
-        raise ValueError("llm_api is required in state")
-    return llm_api
+def _require_runtime(state: dict) -> ToolRuntime:
+    runtime_id = state.get("runtime_id") if isinstance(state, dict) else None
+    if not isinstance(runtime_id, str) or not runtime_id:
+        raise ValueError("runtime_id is required in state")
+    runtime = get_runtime(runtime_id)
+    if runtime is None:
+        raise ValueError("runtime is required in tool runtime registry")
+    return runtime
 
 
 def step_goal(
@@ -50,7 +38,8 @@ def step_goal(
     ] = None,
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
-    state_api = _require_state_api(state)
+    runtime = _require_runtime(state)
+    state_api = runtime.state_api
     task_id = state.get("task_id") if isinstance(state, dict) else None
     if not task_id:
         return {"step_goal": "", "error": "task_id_missing"}
@@ -67,7 +56,7 @@ def step_goal(
         or previous_goal
         or json.dumps(payload_data, ensure_ascii=False)
     )
-    llm_api = _require_llm_api(state)
+    llm_api = runtime.tool_api.tool_llm_api()
     prompt = build_step_goal_prompt(
         previous_goal=previous_goal,
         failure_reason=failure_reason,

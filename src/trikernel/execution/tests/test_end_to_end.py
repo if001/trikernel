@@ -2,13 +2,14 @@ import asyncio
 
 from trikernel.execution.dispatcher import DispatchConfig, WorkDispatcher
 from trikernel.execution.worker import WorkWorker
-from trikernel.execution.transports import ResultReceiver, ResultSender, WorkReceiver, WorkSender
-from trikernel.state_kernel import StateKernel
-from trikernel.state_kernel import build_message_store
-from trikernel.state_kernel import build_memory_store
-from trikernel.orchestration_kernel.models import LLMResponse, RunResult
-from trikernel.state_kernel import LangMemMemoryManager
-from trikernel.tool_kernel.protocols import ToolLLMBase
+from trikernel.execution.transports import (
+    ResultReceiver,
+    ResultSender,
+    WorkReceiver,
+    WorkSender,
+)
+from trikernel.state_kernel import LangMemMemoryManager, StateKernel, build_memory_store
+from trikernel.orchestration_kernel.models import RunResult
 
 
 class InMemoryChannel(WorkSender, WorkReceiver, ResultSender, ResultReceiver):
@@ -29,55 +30,20 @@ class InMemoryChannel(WorkSender, WorkReceiver, ResultSender, ResultReceiver):
         return self._queue.pop(0)
 
 
-class DummyToolAPI:
-    def tool_register(self, tool) -> None:
-        return None
-
-    def tool_describe(self, tool_name):
-        raise KeyError(tool_name)
-
-    def tool_search(self, query):
-        return []
-
-    def tool_list(self):
-        return []
-
-    def tool_descriptions(self):
-        return []
-
-    def tool_structured_list(self):
-        return []
-
-
 class DummyRunner:
-    def run(self, task, runner_context):
+    def run(self, task, *, conversation_id: str, stream: bool = False):
         return RunResult(user_output="done", task_state="done")
 
 
 class FailingRunner:
-    def run(self, task, runner_context):
+    def run(self, task, *, conversation_id: str, stream: bool = False):
         raise RuntimeError("boom")
-
-
-class DummyLLM:
-    def generate(self, task, tools):
-        return LLMResponse(user_output="ok", tool_calls=[])
-
-    def collect_stream(self, task, tools):
-        return LLMResponse(user_output="ok", tool_calls=[]), []
-
-
-class DummyToolLLM(ToolLLMBase):
-    def generate(self, prompt: str, tools=None) -> str:
-        return ""
 
 
 def test_work_task_end_to_end(tmp_path):
     async def _run():
         state = StateKernel(data_dir=tmp_path)
-        async with build_memory_store(data_dir=tmp_path) as store, build_message_store(
-            data_dir=tmp_path
-        ) as message_store:
+        async with build_memory_store(data_dir=tmp_path) as store:
             work_channel = InMemoryChannel()
             result_channel = InMemoryChannel()
             dispatcher = WorkDispatcher(
@@ -88,13 +54,8 @@ def test_work_task_end_to_end(tmp_path):
             )
             worker = WorkWorker(
                 state_api=state,
-                message_store=message_store,
-                tool_api=DummyToolAPI(),
                 runner=DummyRunner(),
-                llm_api=DummyLLM(),
-                tool_llm_api=DummyToolLLM(),
                 memory_manager=LangMemMemoryManager(store),
-                store=store,
                 work_receiver=work_channel,
                 result_sender=result_channel,
             )
@@ -120,9 +81,7 @@ def test_work_task_end_to_end(tmp_path):
 def test_work_task_failure_marks_failed(tmp_path):
     async def _run():
         state = StateKernel(data_dir=tmp_path)
-        async with build_memory_store(data_dir=tmp_path) as store, build_message_store(
-            data_dir=tmp_path
-        ) as message_store:
+        async with build_memory_store(data_dir=tmp_path) as store:
             work_channel = InMemoryChannel()
             result_channel = InMemoryChannel()
             dispatcher = WorkDispatcher(
@@ -133,13 +92,8 @@ def test_work_task_failure_marks_failed(tmp_path):
             )
             worker = WorkWorker(
                 state_api=state,
-                message_store=message_store,
-                tool_api=DummyToolAPI(),
                 runner=FailingRunner(),
-                llm_api=DummyLLM(),
-                tool_llm_api=DummyToolLLM(),
                 memory_manager=LangMemMemoryManager(store),
-                store=store,
                 work_receiver=work_channel,
                 result_sender=result_channel,
             )

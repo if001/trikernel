@@ -3,7 +3,7 @@ import queue
 import threading
 import time
 
-from trikernel.execution.dispatcher import DispatchConfig, PendingWork, WorkDispatcher
+from trikernel.execution.dispatcher import DispatchConfig, WorkDispatcher
 from trikernel.execution.worker import WorkWorker
 from trikernel.execution.session import TrikernelSession
 from trikernel.execution.transports import (
@@ -12,12 +12,8 @@ from trikernel.execution.transports import (
     WorkReceiver,
     WorkSender,
 )
-from trikernel.orchestration_kernel.models import LLMResponse, RunResult
-from trikernel.state_kernel import LangMemMemoryManager
-from trikernel.state_kernel import StateKernel
-from trikernel.state_kernel import build_message_store
-from trikernel.state_kernel import build_memory_store
-from trikernel.tool_kernel.protocols import ToolLLMBase
+from trikernel.orchestration_kernel.models import RunResult
+from trikernel.state_kernel import LangMemMemoryManager, StateKernel, build_memory_store
 
 
 class ThreadSafeChannel(WorkSender, WorkReceiver, ResultSender, ResultReceiver):
@@ -38,31 +34,11 @@ class ThreadSafeChannel(WorkSender, WorkReceiver, ResultSender, ResultReceiver):
             return None
 
 
-class DummyToolAPI:
-    def tool_register(self, tool) -> None:
-        return None
-
-    def tool_describe(self, tool_name):
-        raise KeyError(tool_name)
-
-    def tool_search(self, query):
-        return []
-
-    def tool_list(self):
-        return []
-
-    def tool_descriptions(self):
-        return []
-
-    def tool_structured_list(self):
-        return []
-
-
 class StaticRunner:
     def __init__(self, output: str) -> None:
         self._output = output
 
-    def run(self, task, runner_context):
+    def run(self, task, *, conversation_id: str, stream: bool = False):
         return RunResult(user_output=self._output, task_state="done")
 
 
@@ -71,48 +47,24 @@ class BlockingRunner:
         self._event = event
         self._output = output
 
-    def run(self, task, runner_context):
+    def run(self, task, *, conversation_id: str, stream: bool = False):
         self._event.wait()
         return RunResult(user_output=self._output, task_state="done")
-
-
-class DummyLLM:
-    def generate(self, task, tools):
-        return LLMResponse(user_output="ok", tool_calls=[])
-
-    def collect_stream(self, task, tools):
-        return LLMResponse(user_output="ok", tool_calls=[]), []
-
-
-class DummyToolLLM(ToolLLMBase):
-    def generate(self, prompt: str, tools=None) -> str:
-        return ""
 
 
 def _run_async(coro) -> None:
     asyncio.run(coro)
 
 
-from pathlib import Path
-
-
 def test_async_flow_main_worker_serial(tmp_path):
     async def _run():
         state = StateKernel(data_dir=tmp_path)
-        async with (
-            build_memory_store(data_dir=tmp_path) as store,
-            build_message_store(data_dir=tmp_path) as message_store,
-        ):
-            tool_api = DummyToolAPI()
+        async with build_memory_store(data_dir=tmp_path) as store:
             main_runner = StaticRunner("main done")
             worker_runner = StaticRunner("work done")
             session = TrikernelSession(
-                state,
-                tool_api,
-                main_runner,
-                llm_api=DummyLLM(),
-                tool_llm_api=DummyToolLLM(),
-                message_store=message_store,
+                state_api=state,
+                runner=main_runner,
                 store=store,
                 enable_memory_updates=False,
             )
@@ -127,13 +79,8 @@ def test_async_flow_main_worker_serial(tmp_path):
             )
             worker = WorkWorker(
                 state_api=state,
-                message_store=message_store,
-                tool_api=tool_api,
                 runner=worker_runner,
-                llm_api=DummyLLM(),
-                tool_llm_api=DummyToolLLM(),
                 memory_manager=LangMemMemoryManager(store),
-                store=store,
                 work_receiver=work_channel,
                 result_sender=result_channel,
             )
@@ -156,21 +103,13 @@ def test_async_flow_main_worker_serial(tmp_path):
 def test_async_flow_main_and_worker_parallel(tmp_path):
     async def _run():
         state = StateKernel(data_dir=tmp_path)
-        async with (
-            build_memory_store(data_dir=tmp_path) as store,
-            build_message_store(data_dir=tmp_path) as message_store,
-        ):
-            tool_api = DummyToolAPI()
+        async with build_memory_store(data_dir=tmp_path) as store:
             main_runner = StaticRunner("main done")
             release = threading.Event()
             worker_runner = BlockingRunner(release, "work done")
             session = TrikernelSession(
-                state,
-                tool_api,
-                main_runner,
-                llm_api=DummyLLM(),
-                tool_llm_api=DummyToolLLM(),
-                message_store=message_store,
+                state_api=state,
+                runner=main_runner,
                 store=store,
                 enable_memory_updates=False,
             )
@@ -185,13 +124,8 @@ def test_async_flow_main_and_worker_parallel(tmp_path):
             )
             worker = WorkWorker(
                 state_api=state,
-                message_store=message_store,
-                tool_api=tool_api,
                 runner=worker_runner,
-                llm_api=DummyLLM(),
-                tool_llm_api=DummyToolLLM(),
                 memory_manager=LangMemMemoryManager(store),
-                store=store,
                 work_receiver=work_channel,
                 result_sender=result_channel,
             )
@@ -218,58 +152,3 @@ def test_async_flow_main_and_worker_parallel(tmp_path):
             assert "work done" in notices
 
     asyncio.run(_run())
-
-
-def test_worker_max_parallel_two(tmp_path):
-    state = StateKernel(data_dir=tmp_path)
-    dispatcher = WorkDispatcher(
-        state_api=state,
-        work_sender=ThreadSafeChannel(),
-        result_receiver=ThreadSafeChannel(),
-        config=DispatchConfig(worker_count=2, poll_interval=0),
-    )
-
-    state.task_create("work", {"message": "one"})
-    state.task_create("work", {"message": "two"})
-    state.task_create("work", {"message": "three"})
-
-    _run_async(dispatcher.run_once())
-
-    assert len(dispatcher._inflight) == 2
-    assert len(dispatcher._pending) == 1
-
-
-def test_worker_timeout_flow(tmp_path):
-    state = StateKernel(data_dir=tmp_path)
-    dispatcher = WorkDispatcher(
-        state_api=state,
-        work_sender=ThreadSafeChannel(),
-        result_receiver=ThreadSafeChannel(),
-        config=DispatchConfig(worker_timeout_seconds=1),
-    )
-    task_id = state.task_create("work", {"message": "do"})
-    dispatcher._inflight[task_id] = time.monotonic() - 5
-    dispatcher._fail_timed_out_tasks()
-    task = state.task_get(task_id)
-    assert task is not None
-    assert task.state == "failed"
-
-
-def test_queue_timeout_flow(tmp_path):
-    state = StateKernel(data_dir=tmp_path)
-    dispatcher = WorkDispatcher(
-        state_api=state,
-        work_sender=ThreadSafeChannel(),
-        result_receiver=ThreadSafeChannel(),
-        config=DispatchConfig(work_queue_timeout_seconds=1),
-    )
-    task_id = state.task_create("work", {"message": "do"})
-    dispatcher._pending.append(
-        PendingWork(
-            task_id=task_id, enqueued_at=time.monotonic() - 5, timeout_seconds=1
-        )
-    )
-    dispatcher._fail_timed_out_pending()
-    task = state.task_get(task_id)
-    assert task is not None
-    assert task.state == "failed"

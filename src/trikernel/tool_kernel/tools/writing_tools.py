@@ -17,21 +17,19 @@ from .prompts import (
     build_polish_prompt,
     build_summary_prompt,
 )
-from ..runtime import get_llm_api
-from ..protocols import ToolLLMBase
+from ..runtime import ToolRuntime, get_runtime
 
 logger = get_logger(__name__)
 
 
-def _require_llm(state: dict) -> ToolLLMBase:
-    llm_api = state.get("llm_api") if isinstance(state, dict) else None
-    if llm_api is None and isinstance(state, dict):
-        runtime_id = state.get("runtime_id")
-        if isinstance(runtime_id, str):
-            llm_api = get_llm_api(runtime_id)
-    if llm_api is None:
-        raise ValueError("llm_api is required in state")
-    return llm_api
+def _require_runtime(state: dict) -> ToolRuntime:
+    runtime_id = state.get("runtime_id") if isinstance(state, dict) else None
+    if not isinstance(runtime_id, str) or not runtime_id:
+        raise ValueError("runtime_id is required in state")
+    runtime = get_runtime(runtime_id)
+    if runtime is None:
+        raise ValueError("runtime is required in tool runtime registry")
+    return runtime
 
 
 def summarize_text(
@@ -47,7 +45,7 @@ def summarize_text(
     ] = "Japanese",
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, object]:
-    llm_api = _require_llm(state)
+    llm_api = _require_runtime(state).tool_api.tool_llm_api()
     prompt = build_summary_prompt(
         text=text,
         max_length=max_length,
@@ -69,7 +67,7 @@ def extract_corresponding(
     ] = "Japanese",
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, object]:
-    llm_api = _require_llm(state)
+    llm_api = _require_runtime(state).tool_api.tool_llm_api()
     prompt = build_extract_prompt(
         source_text=source_text,
         target_text=target_text,
@@ -99,7 +97,7 @@ def create_outline(
     *,
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, object]:
-    llm_api = _require_llm(state)
+    llm_api = _require_runtime(state).tool_api.tool_llm_api()
     prompt = build_outline_prompt(
         user_input=user_input,
         tool_results=tool_results,
@@ -124,7 +122,7 @@ def polish_article(
     ] = "Japanese",
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, object]:
-    llm_api = _require_llm(state)
+    llm_api = _require_runtime(state).tool_api.tool_llm_api()
     prompt = build_polish_prompt(
         draft=draft,
         article_type=article_type,
@@ -150,7 +148,7 @@ def generate_article(
     ] = "Japanese",
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, object]:
-    llm_api = _require_llm(state)
+    llm_api = _require_runtime(state).tool_api.tool_llm_api()
     prompt = build_article_prompt(
         article_type=article_type,
         audience=audience,

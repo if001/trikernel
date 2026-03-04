@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, List, Optional, Sequence, Set, TypedDict
+from typing import Annotated, List, Sequence, Set, TypedDict
 
 from langchain_core.messages import (
     AIMessage,
@@ -16,7 +16,8 @@ from langmem.short_term import RunningSummary
 from trikernel.state_kernel.protocols import StateKernelAPI
 
 from ..logging import get_logger
-from ..models import RunnerContext, SimpleStepContext, ToolStepContext
+from ..models import SimpleStepContext, ToolStepContext
+from ...tool_kernel.kernel import ToolKernel
 from ...state_kernel.models import Task
 
 
@@ -24,7 +25,6 @@ class BaseState(TypedDict):
     task_id: str
     runtime_id: str
     messages: Annotated[List[BaseMessage], add_messages]
-    state_api: Optional[StateKernelAPI]  ## runtime_idから取得される
 
 
 class ToolLoopState(BaseState):
@@ -98,22 +98,22 @@ def handle_tool_error(exc: Exception) -> str:
 logger = get_logger(__name__)
 
 
-def tools_text(runner_context: RunnerContext) -> str:
+def tools_text(tool_api: ToolKernel) -> str:
     tools_text = "tool_list:\n"
-    for v in runner_context.tool_api.tool_descriptions():
+    for v in tool_api.tool_descriptions():
         tools_text += f"{v['tool_name']}: {v['description']}\n"
     return tools_text
 
 
 def build_memory_context(
-    runner_context: RunnerContext,
+    state_api: StateKernelAPI,
     conversation_id: str,
     query: str,
     *,
     log_missing: bool = False,
     log_details: bool = False,
 ) -> str:
-    memory_kernel = runner_context.state_api.memory_kernel(conversation_id)
+    memory_kernel = state_api.memory_kernel(conversation_id)
     if memory_kernel is None:
         if log_missing:
             logger.warning("memory_kernel is None")

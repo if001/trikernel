@@ -7,12 +7,9 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
 )
+from langchain.chat_models import BaseChatModel
 
-from langchain.agents import create_agent
-from langgraph.runtime import Runtime
-from langchain.agents.middleware import (
-    FilesystemFileSearchMiddleware,
-)
+from langchain.agents.middleware import FilesystemFileSearchMiddleware
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
 
@@ -20,12 +17,17 @@ from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 
 
 from ..logging import get_logger
-from ..models import RunResult, RunnerContext
+from ..models import RunResult
 from ..payloads import extract_llm_input, extract_user_message
+from ..runtime import build_runnable_config
 from .prompts import (
     build_agent_prompt,
 )
 from ...state_kernel.models import Task
+from ...state_kernel.protocols import StateKernelAPI
+from ...state_kernel.core.message_store_interface import MessageStoreProtocol
+from ...tool_kernel.kernel import ToolKernel
+from langgraph.store.base import BaseStore
 
 
 logger = get_logger(__name__)
@@ -34,11 +36,30 @@ logger = get_logger(__name__)
 class DeepAgentLoopRunner(RunnerAPI):
     def __init__(
         self,
+        *,
+        state_api: StateKernelAPI,
+        tool_api: ToolKernel,
+        message_store: MessageStoreProtocol,
+        store: BaseStore,
+        llm_api: BaseChatModel,
+        large_llm_api: BaseChatModel,
         recursion_limit: int = 20,
     ):
+        self._state_api = state_api
+        self._tool_api = tool_api
+        self._message_store = message_store
+        self._store = store
+        self._llm_api = llm_api
+        self._large_llm_api = large_llm_api
         self._recursion_limit = recursion_limit
 
-    def run(self, task: Task, ctx: RunnerContext) -> RunResult:
+    def run(
+        self,
+        task: Task,
+        *,
+        conversation_id: str,
+        stream: bool = False,
+    ) -> RunResult:
         try:
             user_message = extract_user_message(extract_llm_input(task.payload or {}))
             if not user_message:
@@ -49,14 +70,13 @@ class DeepAgentLoopRunner(RunnerAPI):
                     error={"code": "MISSING_MESSAGE", "message": "message is required"},
                     stream_chunks=[],
                 )
-            agent = self._build(ctx)
-            config = {
-                "recursion_limit": self._recursion_limit,
-                "configurable": {
-                    "thread_id": ctx.conversation_id,
-                    "langgraph_user_id": ctx.conversation_id,
-                },
-            }
+            agent = self._build()
+            config = build_runnable_config(
+                conversation_id=conversation_id,
+                state_api=self._state_api,
+                tool_api=self._tool_api,
+                recursion_limit=self._recursion_limit,
+            )
             result = agent.invoke(
                 {"messages": [HumanMessage(content=user_message)]},
                 config,
@@ -101,7 +121,7 @@ class DeepAgentLoopRunner(RunnerAPI):
                 stream_chunks=[],
             )
 
-    def _build(self, ctx: RunnerContext):
+    def _build(self):
         work_space_dir = os.environ.get("work_space_dir", os.getcwd())
         fsSearch = FilesystemFileSearchMiddleware(
             root_path=work_space_dir,
@@ -115,16 +135,16 @@ class DeepAgentLoopRunner(RunnerAPI):
                 routes={"/memories/": StoreBackend(runtime)},
             )
 
-        tools = ctx.tool_api.tool_structured_list()
+        tools = self._tool_api.tool_structured_list()
         logger.info(f"tools: {tools}")
         system = build_agent_prompt()
         agent = create_deep_agent(
-            model=ctx.large_llm_api,
+            model=self._large_llm_api,
             tools=tools,
             system_prompt=system,
-            store=ctx.store,
+            store=self._store,
             backend=make_backend,
-            checkpointer=ctx.message_store.checkpointer,
+            checkpointer=self._message_store.checkpointer,
             middleware=[fsSearch],
         )
         return agent

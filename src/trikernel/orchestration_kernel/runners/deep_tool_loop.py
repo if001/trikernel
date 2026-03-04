@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import List, Sequence, Set, cast, Literal
+from typing import List, Sequence, cast, Literal
 from langchain.chat_models import BaseChatModel
 from langmem.utils import AnyMessage, RunnableConfig
 from pydantic import BaseModel, Field
@@ -18,12 +18,13 @@ from langchain_core.tools import BaseTool
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
-from langmem.short_term import SummarizationNode, summarize_messages
+from langmem.short_term import summarize_messages
 
 from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 from ..logging import get_logger
-from ..models import Budget, RunResult, RunnerContext, ToolStepContext
+from ..models import Budget, RunResult, ToolStepContext
 from ..payloads import extract_llm_input, extract_user_message
+from ..runtime import build_runnable_config
 from ._shared import (
     DeepToolLoopState,
     build_memory_context,
@@ -50,7 +51,10 @@ from .prompts import (
     build_tool_loop_prompt_simple_for_worker,
 )
 from ...state_kernel.models import Task
-from ...tool_kernel.runtime import register_runtime
+from ...state_kernel.protocols import StateKernelAPI
+from ...state_kernel.core.message_store_interface import MessageStoreProtocol
+from ...tool_kernel.kernel import ToolKernel
+from langgraph.store.base import BaseStore
 
 logger = get_logger(__name__)
 
@@ -58,11 +62,30 @@ logger = get_logger(__name__)
 class DeepToolLoopRunner(RunnerAPI):
     def __init__(
         self,
+        *,
+        state_api: StateKernelAPI,
+        tool_api: ToolKernel,
+        message_store: MessageStoreProtocol,
+        store: BaseStore,
+        llm_api: BaseChatModel,
+        large_llm_api: BaseChatModel,
         recursion_limit: int = 100,
     ) -> None:
+        self._state_api = state_api
+        self._tool_api = tool_api
+        self._message_store = message_store
+        self._store = store
+        self._llm_api = llm_api
+        self._large_llm_api = large_llm_api
         self._recursion_limit = recursion_limit
 
-    def run(self, task: Task, runner_context: RunnerContext) -> RunResult:
+    def run(
+        self,
+        task: Task,
+        *,
+        conversation_id: str,
+        stream: bool = False,
+    ) -> RunResult:
         try:
             user_message = extract_user_message(extract_llm_input(task.payload or {}))
             if not user_message:
@@ -73,33 +96,28 @@ class DeepToolLoopRunner(RunnerAPI):
                     error={"code": "MISSING_MESSAGE", "message": "message is required"},
                     stream_chunks=[],
                 )
-            tools = runner_context.tool_api.tool_structured_list()
-            tool_list_text = tools_text(runner_context)
+            tools = self._tool_api.tool_structured_list()
+            tool_list_text = tools_text(self._tool_api)
             step_context = _initial_step_context(task, self._recursion_limit)
             graph = _build_graph(
-                runner_context.large_llm_api,
-                runner_context.llm_api,
+                self._large_llm_api,
+                self._llm_api,
                 tools,
                 user_message,
                 tool_list_text,
                 task.task_type,
-                runner_context,
-                runner_context.store,
+                self._state_api,
+                self._tool_api,
+                self._message_store,
+                self._store,
             )
             limit = budget_limit(task, self._recursion_limit)
-            register_runtime(
-                runner_context.conversation_id,
-                runner_context.state_api,
-                runner_context.tool_llm_api,
+            config: RunnableConfig = build_runnable_config(
+                conversation_id=conversation_id,
+                state_api=self._state_api,
+                tool_api=self._tool_api,
+                recursion_limit=limit,
             )
-
-            config: RunnableConfig = {
-                "recursion_limit": limit,
-                "configurable": {
-                    "thread_id": runner_context.conversation_id,
-                    "langgraph_user_id": runner_context.conversation_id,
-                },
-            }
             try:
                 result = graph.invoke(
                     {
@@ -108,12 +126,11 @@ class DeepToolLoopRunner(RunnerAPI):
                         "tool_set": set(),
                         "tool_step_context": step_context,
                         "stop": False,
-                        "runtime_id": runner_context.conversation_id,
+                        "runtime_id": conversation_id,
                         "task_id": task.task_id,
                         "memory_context_text": "",
                         "phase": "GET",
                         "phase_goal": "",
-                        "state_api": None,
                     },
                     config,
                     # debug=True,
@@ -130,13 +147,10 @@ class DeepToolLoopRunner(RunnerAPI):
             except GraphRecursionError:
                 logger.warning("langgraph recursion limit hit: %s", task.task_id)
                 checkpoint_config = {
-                    "configurable": {
-                        "thread_id": runner_context.conversation_id,
-                        "langgraph_user_id": runner_context.conversation_id,
-                    },
+                    "configurable": config.get("configurable", {}),
                 }
                 messages = load_checkpoint_messages(
-                    runner_context.message_store.checkpointer,
+                    self._message_store.checkpointer,
                     checkpoint_config,
                 )
                 if not messages:
@@ -149,8 +163,8 @@ class DeepToolLoopRunner(RunnerAPI):
                     )
                 messages = list(messages)
                 memory_context_text = build_memory_context(
-                    runner_context,
-                    runner_context.conversation_id,
+                    self._state_api,
+                    conversation_id,
                     user_message,
                     log_missing=True,
                 )
@@ -160,7 +174,7 @@ class DeepToolLoopRunner(RunnerAPI):
                     followup_prompt = (
                         f"{followup_prompt}\n\nMemory context:\n{memory_context_text}\n"
                     )
-                response = runner_context.llm_api.invoke(
+                response = self._llm_api.invoke(
                     list(recent_user_messages(messages, last_n=2))
                     + [HumanMessage(content=followup_prompt)]
                 )
@@ -203,15 +217,17 @@ def _build_graph(
     user_message: str,
     tools_text: str,
     task_type: str,
-    runner_context: RunnerContext,
-    store,
+    state_api: StateKernelAPI,
+    tool_api: ToolKernel,
+    message_store: MessageStoreProtocol,
+    store: BaseStore,
 ):
     graph = StateGraph(DeepToolLoopState)
 
     def build_memory(state: DeepToolLoopState):
         memory_context_text = build_memory_context(
-            runner_context,
-            runner_context.conversation_id,
+            state_api,
+            state.get("runtime_id", ""),
             user_message,
             log_missing=True,
         )
@@ -258,7 +274,7 @@ def _build_graph(
         )
         logger.info(f"discover, {_in}")
         query = response.content or ""
-        selected = set(runner_context.tool_api.tool_search(str(query)))
+        selected = set(tool_api.tool_search(str(query)))
         logger.info(f"selected: {selected}")
         return {"tool_set": selected}
 
@@ -340,7 +356,7 @@ def _build_graph(
         _s = state["messages"]
         logger.info(f"observe {_s}")
 
-        observation = _observe_with_llm(runner_context.large_llm_api, state)
+        observation = _observe_with_llm(large_model, state)
         state["tool_step_context"].last_observation = observation.last_observation
         state["tool_step_context"].error_summary = observation.error_summary
         state["tool_step_context"].need_clarification = observation.need_clarification
@@ -391,7 +407,7 @@ def _build_graph(
         summarization_result = summarize_messages(
             messages,
             running_summary=state.get("running_summary"),
-            model=runner_context.llm_api,
+            model=model,
             max_tokens=512,
             max_tokens_before_summary=512,
             max_summary_tokens=256,
@@ -442,9 +458,9 @@ def _build_graph(
     graph.add_edge("followup", END)
 
     if store is None:
-        return graph.compile(checkpointer=runner_context.message_store.checkpointer)
+        return graph.compile(checkpointer=message_store.checkpointer)
     return graph.compile(
-        checkpointer=runner_context.message_store.checkpointer,
+        checkpointer=message_store.checkpointer,
         store=store,
     )
 

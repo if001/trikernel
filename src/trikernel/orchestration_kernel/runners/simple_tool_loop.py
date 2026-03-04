@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Set, cast, Any
+from typing import Sequence, cast, Any
 
 from langchain_core.messages import (
     AIMessage,
-    BaseMessage,
     HumanMessage,
     SystemMessage,
     ToolMessage,
 )
 from langchain_core.tools import BaseTool
-from langchain_ollama import ChatOllama
+from langchain.chat_models import BaseChatModel
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -19,8 +18,8 @@ from langmem.utils import AnyMessage
 
 from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 
-from ..llm.config import load_ollama_config
 from ..logging import get_logger
+from ..runtime import build_runnable_config
 from ._shared import (
     build_memory_context,
     last_ai_message,
@@ -29,7 +28,7 @@ from ._shared import (
     recent_user_messages,
     tools_text,
 )
-from ..models import Budget, RunResult, RunnerContext, SimpleStepContext
+from ..models import Budget, RunResult, SimpleStepContext
 from ..payloads import extract_llm_input, extract_user_message
 from ._shared import (
     SimpleToolLoopState,
@@ -48,7 +47,10 @@ from .prompts import (
     build_tool_loop_prompt_simple_for_worker,
 )
 from ...state_kernel.models import Task
-from ...tool_kernel.runtime import register_runtime
+from ...state_kernel.protocols import StateKernelAPI
+from ...state_kernel.core.message_store_interface import MessageStoreProtocol
+from ...tool_kernel.kernel import ToolKernel
+from langgraph.store.base import BaseStore
 
 logger = get_logger(__name__)
 
@@ -56,13 +58,30 @@ logger = get_logger(__name__)
 class SimpleGraphToolLoopRunner(RunnerAPI):
     def __init__(
         self,
-        model: Optional[ChatOllama] = None,
+        *,
+        state_api: StateKernelAPI,
+        tool_api: ToolKernel,
+        message_store: MessageStoreProtocol,
+        store: BaseStore,
+        llm_api: BaseChatModel,
+        large_llm_api: BaseChatModel,
         recursion_limit: int = 50,
     ) -> None:
-        self._model = model
+        self._state_api = state_api
+        self._tool_api = tool_api
+        self._message_store = message_store
+        self._store = store
+        self._llm_api = llm_api
+        self._large_llm_api = large_llm_api
         self._recursion_limit = recursion_limit
 
-    def run(self, task: Task, runner_context: RunnerContext) -> RunResult:
+    def run(
+        self,
+        task: Task,
+        *,
+        conversation_id: str,
+        stream: bool = False,
+    ) -> RunResult:
         try:
             user_message = extract_user_message(extract_llm_input(task.payload or {}))
             if not user_message:
@@ -73,42 +92,38 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
                     error={"code": "MISSING_MESSAGE", "message": "message is required"},
                     stream_chunks=[],
                 )
-            tools = runner_context.tool_api.tool_structured_list()
-            tool_list_text = tools_text(runner_context)
+            tools = self._tool_api.tool_structured_list()
+            tool_list_text = tools_text(self._tool_api)
             step_context = _initial_step_context(task)
             graph = _build_graph(
-                self._model or _default_model(),
+                self._llm_api,
+                self._large_llm_api,
                 tools,
                 user_message,
                 tool_list_text,
                 task.task_type,
-                runner_context,
-                runner_context.store,
+                self._state_api,
+                self._tool_api,
+                self._message_store,
+                self._store,
             )
             limit = budget_limit(task, self._recursion_limit)
-            register_runtime(
-                runner_context.conversation_id,
-                runner_context.state_api,
-                runner_context.tool_llm_api,
+            config = build_runnable_config(
+                conversation_id=conversation_id,
+                state_api=self._state_api,
+                tool_api=self._tool_api,
+                recursion_limit=limit,
             )
-            config = {
-                "recursion_limit": limit,
-                "configurable": {
-                    "thread_id": runner_context.conversation_id,
-                    "langgraph_user_id": runner_context.conversation_id,
-                },
-            }
             try:
                 init_state: SimpleToolLoopState = {
                     "messages": [HumanMessage(content=user_message)],
                     "tool_set": set(),
                     "step_context": step_context,
                     "stop": False,
-                    "runtime_id": runner_context.conversation_id,
+                    "runtime_id": conversation_id,
                     "task_id": task.task_id,
                     "memory_context_text": "",
                     "running_summary": None,
-                    "state_api": None,
                     "tool_results": [],
                 }
                 result = graph.invoke(
@@ -128,7 +143,7 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
             except GraphRecursionError:
                 logger.warning("langgraph recursion limit hit: %s", task.task_id)
                 messages = load_checkpoint_messages(
-                    runner_context.message_store.checkpointer,
+                    self._message_store.checkpointer,
                     config,
                 )
                 if not messages:
@@ -141,8 +156,8 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
                     )
                 messages = list(messages)
                 memory_context_text = build_memory_context(
-                    runner_context,
-                    runner_context.conversation_id,
+                    self._state_api,
+                    conversation_id,
                     user_message,
                     log_details=True,
                 )
@@ -152,7 +167,7 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
                     followup_prompt = (
                         f"{followup_prompt}\n\nMemory context:\n{memory_context_text}\n"
                     )
-                response = (self._model or _default_model()).invoke(
+                response = self._llm_api.invoke(
                     list(recent_user_messages(messages, last_n=2))
                     + [HumanMessage(content=followup_prompt)]
                 )
@@ -176,12 +191,6 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
             )
 
 
-def _default_model() -> ChatOllama:
-    config = load_ollama_config()
-    model = config.model or "llama3"
-    return ChatOllama(model=model, base_url=config.base_url)
-
-
 def _initial_step_context(task: Task) -> SimpleStepContext:
     payload = task.payload or {}
     budget_payload = payload.get("budget") or {}
@@ -198,13 +207,16 @@ def _initial_step_context(task: Task) -> SimpleStepContext:
 
 
 def _build_graph(
-    model: ChatOllama,
+    model: BaseChatModel,
+    large_model: BaseChatModel,
     tools: Sequence[BaseTool],
     user_message: str,
     tools_text: str,
     task_type: str,
-    runner_context: RunnerContext,
-    store,
+    state_api: StateKernelAPI,
+    tool_api: ToolKernel,
+    message_store: MessageStoreProtocol,
+    store: BaseStore,
 ):
     graph = StateGraph(SimpleToolLoopState)
 
@@ -233,7 +245,7 @@ def _build_graph(
             + [HumanMessage(content=prompt)]
         )
         query = response.content or ""
-        selected = set(runner_context.tool_api.tool_search(str(query)))
+        selected = set(tool_api.tool_search(str(query)))
         return {"tool_set": selected}
 
     def agent(state: SimpleToolLoopState):
@@ -274,7 +286,7 @@ def _build_graph(
         _tool_name = [v.name for v in allowed]
         logger.info(f"allowed tools: {_tool_name}")
         messages = recent_user_messages(state["messages"], last_n=2)
-        response = runner_context.large_llm_api.bind_tools(allowed).invoke(
+        response = large_model.bind_tools(allowed).invoke(
             [SystemMessage(content=system)]
             + list(messages)
             + [HumanMessage(content=prompt)]
@@ -305,8 +317,8 @@ def _build_graph(
 
     def build_memory(state: SimpleToolLoopState):
         memory_context_text = build_memory_context(
-            runner_context,
-            runner_context.conversation_id,
+            state_api,
+            state.get("runtime_id", ""),
             user_message,
             log_details=True,
         )
@@ -353,7 +365,7 @@ def _build_graph(
         summarization_result = summarize_messages(
             messages,
             running_summary=state.get("running_summary"),
-            model=runner_context.llm_api,
+            model=model,
             max_tokens=512,
             max_tokens_before_summary=512,
             max_summary_tokens=256,
@@ -393,8 +405,8 @@ def _build_graph(
     graph.add_edge("followup", END)
 
     if store is None:
-        return graph.compile(checkpointer=runner_context.message_store.checkpointer)
+        return graph.compile(checkpointer=message_store.checkpointer)
     return graph.compile(
-        checkpointer=runner_context.message_store.checkpointer,
+        checkpointer=message_store.checkpointer,
         store=store,
     )

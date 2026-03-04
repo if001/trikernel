@@ -1,5 +1,8 @@
-from trikernel.orchestration_kernel.models import LLMResponse, RunnerContext
-from trikernel.orchestration_kernel.runners import LangGraphToolLoopRunner
+from langchain_core.messages import AIMessage
+
+from trikernel.orchestration_kernel.runners.simple_tool_loop import (
+    SimpleGraphToolLoopRunner,
+)
 from trikernel.state_kernel.models import Task
 from trikernel.tool_kernel.protocols import ToolLLMBase
 
@@ -10,6 +13,9 @@ class DummyStateAPI:
 
 
 class DummyToolAPI:
+    def __init__(self) -> None:
+        self._tool_llm = DummyToolLLM()
+
     def tool_register(self, tool) -> None:
         return None
 
@@ -28,6 +34,9 @@ class DummyToolAPI:
     def tool_structured_list(self):
         return []
 
+    def tool_llm_api(self):
+        return self._tool_llm
+
 
 class DummyMessageStore:
     checkpointer = None
@@ -38,12 +47,12 @@ class DummyStore:
         return []
 
 
-class DummyLLM:
-    def generate(self, task, tools):
-        return LLMResponse(user_output="ok", tool_calls=[])
+class DummyChatModel:
+    def invoke(self, *args, **kwargs):
+        return AIMessage(content="")
 
-    def collect_stream(self, task, tools):
-        return LLMResponse(user_output="ok", tool_calls=[]), []
+    def bind_tools(self, *args, **kwargs):
+        return self
 
 
 class DummyToolLLM(ToolLLMBase):
@@ -51,22 +60,21 @@ class DummyToolLLM(ToolLLMBase):
         return ""
 
 
-def _context():
-    return RunnerContext(
-        runner_id="main",
-        conversation_id="default",
+def _runner() -> SimpleGraphToolLoopRunner:
+    dummy_llm = DummyChatModel()
+    return SimpleGraphToolLoopRunner(
         state_api=DummyStateAPI(),
-        message_store=DummyMessageStore(),
         tool_api=DummyToolAPI(),
-        llm_api=DummyLLM(),
-        tool_llm_api=DummyToolLLM(),
+        message_store=DummyMessageStore(),
         store=DummyStore(),
+        llm_api=dummy_llm,
+        large_llm_api=dummy_llm,
     )
 
 
-def test_langgraph_tool_loop_requires_message():
-    runner = LangGraphToolLoopRunner()
+def test_simple_tool_loop_requires_message():
+    runner = _runner()
     task = Task(task_id="t1", task_type="user_request", payload={}, state="queued")
-    result = runner.run(task, _context())
+    result = runner.run(task, conversation_id="default")
     assert result.task_state == "failed"
     assert result.error["code"] == "MISSING_MESSAGE"

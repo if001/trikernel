@@ -4,14 +4,7 @@ from .llm.config import (
     load_gemini_config,
     load_ollama_config,
 )
-from .models import (
-    Budget,
-    LLMResponse,
-    LLMToolCall,
-    RunResult,
-    RunnerContext,
-    StepContext,
-)
+from .models import Budget, LLMResponse, LLMToolCall, RunResult, StepContext
 from .runners import RunnerAPI
 from .logging import get_logger
 
@@ -24,7 +17,6 @@ __all__ = [
     "LLMResponse",
     "LLMToolCall",
     "RunResult",
-    "RunnerContext",
     "LangGraphToolLoopRunner",
     "Budget",
     "StepContext",
