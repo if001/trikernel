@@ -11,6 +11,10 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from trikernel.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class HybridSearchIndex:
     _chunk_size = 1000
@@ -73,6 +77,9 @@ class HybridSearchIndex:
             return []
         weights = [0.5] * len(retrievers)
         ensemble = EnsembleRetriever(retrievers=retrievers, weights=weights)
+        if len(query) > 1000:
+            logger.warning(f"embed query over 1000. {len(query)}")
+            query = query[:1000]
         docs = ensemble.invoke(query)
         return self._filter_docs(docs, metadata_filter)[:k]
 

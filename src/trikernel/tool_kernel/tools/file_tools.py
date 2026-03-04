@@ -133,7 +133,7 @@ def read_file(
     try:
         content = target.read_text(encoding="utf-8")
     except OSError:
-        return {"path": str(target), "content": ""}
+        return {"path": str(target), "content": "File not found. Path is incorrect."}
     return {"path": str(target), "content": content}
 
 

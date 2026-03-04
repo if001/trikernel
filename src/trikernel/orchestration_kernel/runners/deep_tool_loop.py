@@ -303,7 +303,8 @@ def _build_graph(
             _allowed_name = [v.name for v in allowed]
             logger.info(f"allowed_name: {_allowed_name}")
             logger.info(f"allowed: {allowed}")
-            response = large_model.bind_tools(allowed, tool_choice="required").invoke(
+            ## tool_choiceはollamaではサポートされてないらしい
+            response = large_model.bind_tools(allowed, tool_choice="any").invoke(
                 [SystemMessage(content=system)]
                 + list(messages)
                 + [HumanMessage(content=prompt)]
@@ -336,6 +337,9 @@ def _build_graph(
     tool_node = ToolNode(list(tools), handle_tool_errors=handle_tool_error)
 
     def observe(state: DeepToolLoopState):
+        _s = state["messages"]
+        logger.info(f"observe {_s}")
+
         observation = _observe_with_llm(runner_context.large_llm_api, state)
         state["tool_step_context"].last_observation = observation.last_observation
         state["tool_step_context"].error_summary = observation.error_summary
@@ -347,10 +351,12 @@ def _build_graph(
     def followup(state: DeepToolLoopState):
         memory_context_text = state.get("memory_context_text", "")
         messages = recent_user_messages(state["messages"], last_n=2)
+
         if task_type == "user_request":
             system, prompt = build_tool_loop_followup_prompt(
                 user_message=user_message,
-                step_context_text=state["tool_step_context"].to_str(),
+                notes=state["tool_step_context"].notes,
+                phase_goal=state["phase_goal"],
                 memory_context_text=memory_context_text,
             )
         elif task_type == "notification":
@@ -486,6 +492,8 @@ def _plan_with_llm(
     state: DeepToolLoopState,
     user_message: str,
 ) -> tuple[str, str]:
+    _m = state["messages"][-2:]
+    logger.info(f"last message {_m}")
     _ctx: ToolStepContext = state["tool_step_context"]
 
     memory_context_text = state.get("memory_context_text", "")

@@ -372,6 +372,54 @@ def build_state_tools() -> List[BaseTool]:
     ]
 
 
+def build_task_tools() -> List[BaseTool]:
+    return [
+        # StructuredTool.from_function(
+        #     task_create_user_request,
+        #     name="task.create_user_request",
+        #     description="Create a user_request task.",
+        # ),
+        StructuredTool.from_function(
+            task_create_work,
+            name="task.create_work",
+            description=(
+                "Start a worker deep-work job for investigations that may exceed the main agent’s per-step tool-call budget.\n"
+                "Use when the main loop needs to offload long-running research / multi-hop browsing / heavy extraction beyond allowed tool iterations.\n"
+                "Not for scheduling; for time-based or periodic runs use task.create_work_at / task.create_work_repeat.\n"
+                "The worker runtime will always emit a notification at the end (not via this tool call)."
+            ),
+        ),
+        StructuredTool.from_function(
+            task_create_work_at,
+            name="task.create_work_at",
+            description=(
+                "Schedule a worker job at a specific run_at (ISO8601).\n"
+                "Use for reminders, delayed checks, or actions that must happen at a certain time.\n"
+                "Not for deep-work offloading; use task.create_work if the goal is to exceed main-loop tool budget."
+            ),
+        ),
+        StructuredTool.from_function(
+            task_create_work_repeat,
+            name="task.create_work_repeat",
+            description=(
+                "Schedule a repeating worker job at a fixed interval (repeat_interval_seconds >= 3600).\n"
+                "Use for periodic monitoring/digests/maintenance.\n"
+                "Each run will end with a notification emitted by the worker runtime."
+            ),
+        ),
+        StructuredTool.from_function(
+            task_get,
+            name="task.get",
+            description="Fetch a task by id for debugging, tracing, or runner logic.",
+        ),
+        StructuredTool.from_function(
+            task_list,
+            name="task.list",
+            description="List tasks by type/state for runner polling, dashboards, or maintenance.",
+        ),
+    ]
+
+
 def _validate_run_at(run_at: str) -> None:
     try:
         parsed = datetime.fromisoformat(run_at)

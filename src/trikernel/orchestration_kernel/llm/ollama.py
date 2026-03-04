@@ -39,7 +39,7 @@ def newOllamaClient(
 
 def newOllamaCloudClient(
     config: Optional[OllamaConfig] = None,
-    model: Optional[str] = None,
+    model: str = "gpt-oss:20b",
     timeout: int = 60,
 ):
     import os
@@ -51,7 +51,7 @@ def newOllamaCloudClient(
     _client = ChatOllama(
         # model="qwen3.5:27b",
         # model="gemma3:27b", ## toolに対応してない
-        model="gpt-oss:20b",
+        model=model,
         base_url="https://ollama.com",
         client_kwargs={"headers": headers},
     )

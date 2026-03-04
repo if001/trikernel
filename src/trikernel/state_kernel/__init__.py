@@ -6,6 +6,7 @@ from .core.memory_store import build_memory_store, load_memory_store_config
 from .memory_schemas import Episode, Procedure, Triple, UserProfile
 from .models import Artifact, Task
 from .protocols import StateKernelAPI
+from .kernel import create_state_kernel
 
 __all__ = [
     "StateKernel",
@@ -22,4 +23,5 @@ __all__ = [
     "Triple",
     "UserProfile",
     "StateKernelAPI",
+    "create_state_kernel",
 ]

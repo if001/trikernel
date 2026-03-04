@@ -29,11 +29,7 @@ class ToolOllamaLLM(ToolLLMBase):
     def generate(self, prompt: str, tools: List[Any] | None = None) -> str:
         self._logger.info("Tool Ollama request model=%s", self.model)
         messages = [HumanMessage(content=prompt)]
-        if tools:
-            llm_with_tools = self._client.bind_tools(tools)
-            response = llm_with_tools.invoke(messages)
-        else:
-            response = self._client.invoke(messages)
+        response = self._client.invoke(messages, config={"timeout": self.timeout})
         return _parse_response(response)
 
 

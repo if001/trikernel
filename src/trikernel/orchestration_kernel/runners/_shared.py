@@ -35,6 +35,11 @@ class ToolLoopState(BaseState):
 
 class SimpleToolLoopState(ToolLoopState):
     step_context: SimpleStepContext
+    running_summary: RunningSummary | None
+    tool_set: Set[str]
+    stop: bool
+    memory_context_text: str
+    tool_results: list[str]
 
 
 class DeepToolLoopState(BaseState):

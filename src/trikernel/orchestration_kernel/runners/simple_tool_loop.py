@@ -7,31 +7,36 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
+    ToolMessage,
 )
 from langchain_core.tools import BaseTool
 from langchain_ollama import ChatOllama
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
+from langmem.short_term import summarize_messages
+from langmem.utils import AnyMessage
 
 from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 
 from ..llm.config import load_ollama_config
 from ..logging import get_logger
-from ..models import Budget, RunResult, RunnerContext, SimpleStepContext
-from ..payloads import extract_llm_input, extract_user_message
 from ._shared import (
-    SimpleToolLoopState,
     build_memory_context,
-    budget_exceeded_text,
-    budget_limit,
-    filter_tools,
-    handle_tool_error,
     last_ai_message,
     load_checkpoint_messages,
     message_content_text,
     recent_user_messages,
     tools_text,
+)
+from ..models import Budget, RunResult, RunnerContext, SimpleStepContext
+from ..payloads import extract_llm_input, extract_user_message
+from ._shared import (
+    SimpleToolLoopState,
+    budget_exceeded_text,
+    budget_limit,
+    filter_tools,
+    handle_tool_error,
 )
 from .prompts import (
     build_discover_tools_simple_prompt,
@@ -52,7 +57,7 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
     def __init__(
         self,
         model: Optional[ChatOllama] = None,
-        recursion_limit: int = 10,
+        recursion_limit: int = 50,
     ) -> None:
         self._model = model
         self._recursion_limit = recursion_limit
@@ -94,16 +99,20 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
                 },
             }
             try:
+                init_state: SimpleToolLoopState = {
+                    "messages": [HumanMessage(content=user_message)],
+                    "tool_set": set(),
+                    "step_context": step_context,
+                    "stop": False,
+                    "runtime_id": runner_context.conversation_id,
+                    "task_id": task.task_id,
+                    "memory_context_text": "",
+                    "running_summary": None,
+                    "state_api": None,
+                    "tool_results": [],
+                }
                 result = graph.invoke(
-                    {
-                        "messages": [HumanMessage(content=user_message)],
-                        "tool_set": set(),
-                        "step_context": step_context,
-                        "stop": False,
-                        "runtime_id": runner_context.conversation_id,
-                        "task_id": task.task_id,
-                        "memory_context_text": "",
-                    },
+                    init_state,
                     config=config,
                     # debug=True,
                 )
@@ -144,7 +153,7 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
                         f"{followup_prompt}\n\nMemory context:\n{memory_context_text}\n"
                     )
                 response = (self._model or _default_model()).invoke(
-                    list(recent_user_messages(messages, last_n=3))
+                    list(recent_user_messages(messages, last_n=2))
                     + [HumanMessage(content=followup_prompt)]
                 )
                 messages.append(response)
@@ -200,13 +209,22 @@ def _build_graph(
     graph = StateGraph(SimpleToolLoopState)
 
     def discover(state: SimpleToolLoopState):
-        messages = recent_user_messages(state["messages"], last_n=3)
+        _last = state["messages"][-1]
+        logger.info(f"last: {_last}")
+        if isinstance(_last, ToolMessage):
+            state["tool_results"].append(str(_last.name) + ":" + str(_last.content))
+        if isinstance(_last, HumanMessage):
+            logger.warning("last is HumanMessage...")
+
+        messages = recent_user_messages(state["messages"], last_n=2)
         memory_context_text = state.get("memory_context_text", "")
+        summary = state["running_summary"]
         system, prompt = build_discover_tools_simple_prompt(
             user_input=user_message,
             tools_text=tools_text,
             step_context_text=state["step_context"].to_str(),
             memory_context_text=memory_context_text,
+            summary=summary.summary if summary else None,
         )
 
         response = model.invoke(
@@ -218,19 +236,26 @@ def _build_graph(
         selected = set(runner_context.tool_api.tool_search(str(query)))
         return {"tool_set": selected}
 
-    def agent(state):
+    def agent(state: SimpleToolLoopState):
         if state["step_context"].budget.remaining_steps <= 0:
             return {
                 "messages": [AIMessage(content=budget_exceeded_text())],
                 "stop": True,
             }
-
+        summary = state["running_summary"]
         memory_context_text = state.get("memory_context_text", "")
+        tool_results = state["tool_results"]
+        _last = state["messages"][-1]
+        if isinstance(_last, HumanMessage):
+            logger.warning("last is HumanMessage...")
+
         if task_type == "user_request":
             system, prompt = build_tool_loop_prompt_simple(
                 user_message=user_message,
                 step_context_text=state["step_context"].to_str(),
                 memory_context_text=memory_context_text,
+                summary=summary.summary if summary else None,
+                tool_results=tool_results,
             )
         elif task_type == "notification":
             system, prompt = build_tool_loop_prompt_simple_for_notification(
@@ -248,8 +273,8 @@ def _build_graph(
         allowed = filter_tools(tools, state["tool_set"])
         _tool_name = [v.name for v in allowed]
         logger.info(f"allowed tools: {_tool_name}")
-        messages = recent_user_messages(state["messages"], last_n=3)
-        response = model.bind_tools(allowed).invoke(
+        messages = recent_user_messages(state["messages"], last_n=2)
+        response = runner_context.large_llm_api.bind_tools(allowed).invoke(
             [SystemMessage(content=system)]
             + list(messages)
             + [HumanMessage(content=prompt)]
@@ -289,12 +314,15 @@ def _build_graph(
 
     def followup(state: SimpleToolLoopState):
         memory_context_text = state.get("memory_context_text", "")
-        messages = recent_user_messages(state["messages"], last_n=3)
+        messages = recent_user_messages(state["messages"], last_n=2)
+        summary = state["running_summary"]
         if task_type == "user_request":
             system, prompt = build_tool_loop_followup_prompt(
                 user_message=user_message,
-                step_context_text=state["step_context"].to_str(),
+                notes=[],
+                phase_goal=None,
                 memory_context_text=memory_context_text,
+                summary=summary.summary if summary else None,
             )
         elif task_type == "notification":
             system, prompt = build_tool_loop_followup_prompt_for_notification(
@@ -320,6 +348,25 @@ def _build_graph(
         logger.info(f"debug folow up prompt::: {_in}")
         return {"messages": [response]}
 
+    def summarization_node(state: SimpleToolLoopState):
+        messages: list[AnyMessage] = cast(list[AnyMessage], state["messages"])
+        summarization_result = summarize_messages(
+            messages,
+            running_summary=state.get("running_summary"),
+            model=runner_context.llm_api,
+            max_tokens=512,
+            max_tokens_before_summary=512,
+            max_summary_tokens=256,
+        )
+        return {"running_summary": summarization_result.running_summary}
+
+    def init_node(state: SimpleToolLoopState):
+        m = state["messages"]
+        # logger.info(f"init_state: {m}")
+        return {}
+
+    graph.add_node("init", init_node)
+    graph.add_node("summarization", summarization_node)
     graph.add_node("build_memory", build_memory)
     graph.add_node("discover", discover)
     graph.add_node("agent", agent)
@@ -334,8 +381,10 @@ def _build_graph(
             return "followup"
         return "tools"
 
-    graph.set_entry_point("build_memory")
-    graph.add_edge("build_memory", "discover")
+    graph.set_entry_point("init")
+    graph.add_edge("init", "build_memory")
+    graph.add_edge("build_memory", "summarization")
+    graph.add_edge("summarization", "discover")
     graph.add_edge("discover", "agent")
     graph.add_conditional_edges(
         "agent", route, {"tools": "tools", "followup": "followup", END: END}

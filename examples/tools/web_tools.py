@@ -125,7 +125,7 @@ def _post_json(url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         url, data=data, headers={"Content-Type": "application/json"}
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=180) as response:
             body = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         error_body = exc.read().decode("utf-8") if exc.fp else ""

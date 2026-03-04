@@ -87,10 +87,10 @@ class ToolStepContext:
 
     def to_str(self) -> str:
         return (
+            f"- ツール利用の結果: {self.notes}\n"
             f"- last_observation: {self.last_observation}\n"
             f"- error_summary: {self.error_summary}\n"
             f"- need_clarification: {self.need_clarification}\n"
-            f"- notes: {self.notes}\n"
             f"- remaining_step: {self.budget.remaining_steps}\n"
             f"- spent_steps: {self.budget.spent_steps}\n"
         )

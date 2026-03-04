@@ -158,14 +158,14 @@ class AgentLoopRunner(RunnerAPI):
             always_include=[],
         )
         summarization = SummarizationMiddleware(
-            model=ctx.llm_api,
+            model=ctx.large_llm_api,
             trigger=("messages", 10),
             keep=("messages", 5),
         )
         clearToolResult = ContextEditingMiddleware(
             edits=[
                 ClearToolUsesEdit(
-                    trigger=2000,
+                    trigger=1000,
                     keep=3,
                 )
             ]

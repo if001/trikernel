@@ -9,15 +9,22 @@ from trikernel.orchestration_kernel.llm.ollama import (
     newOllamaClient,
     newOllamaCloudClient,
 )
+from trikernel.orchestration_kernel.runners._shared import SimpleToolLoopState
 from trikernel.orchestration_kernel.runners.agent_loop import AgentLoopRunner
 from trikernel.orchestration_kernel.runners.deep_agent_loop import DeepAgentLoopRunner
 from trikernel.orchestration_kernel.runners.deep_tool_loop import DeepToolLoopRunner
+from trikernel.orchestration_kernel.runners.simple_tool_loop import (
+    SimpleGraphToolLoopRunner,
+)
 from ui.discord_client_ui import DiscordBot, get_intents
 from trikernel.orchestration_kernel import get_logger, RunnerAPI
 from trikernel.execution.session import TrikernelSession
-from trikernel.state_kernel.kernel import StateKernel
-from trikernel.state_kernel.memory_store import build_memory_store
-from trikernel.state_kernel.message_store import build_message_store
+from trikernel.state_kernel import (
+    create_state_kernel,
+    build_memory_store,
+    build_message_store,
+)
+
 from trikernel.tool_kernel.kernel import ToolKernel
 from trikernel.tool_kernel.ollama import ToolOllamaLLM
 from trikernel.tool_kernel.registry import (
@@ -45,19 +52,18 @@ async def runner_loop(ui: DiscordBot, runner: RunnerAPI) -> None:
     # gemini_llm = newGeiminiClient()
 
     tool_llm = ToolOllamaLLM()
-    state = StateKernel()
     tool_kernel = ToolKernel(re_index=False)
 
     async with build_memory_store() as store, build_message_store() as message_store:
+        state = create_state_kernel(store)
         register_default_tools(tool_kernel)
         for tool in build_web_tools():
             tool_kernel.tool_register(tool)
 
-        # register_deep_agent_tools(tool_kernel, store=store)
+        # register_deep_agent_tools(tool_kernel)
         # for tool in build_web_tools_for_deep_agent():
         #     tool_kernel.tool_register(tool)
 
-        state.set_memory_store(store)
         # tool_kernel.debug()
 
         session = TrikernelSession(
@@ -125,8 +131,10 @@ async def runner_loop(ui: DiscordBot, runner: RunnerAPI) -> None:
 
 
 def main() -> None:
-    # runner = SimpleGraphToolLoopRunner()
-    runner = DeepToolLoopRunner()
+    runner = SimpleGraphToolLoopRunner()
+    # runner = DeepToolLoopRunner()
+
+    ## create_agent/deep_agent, build_toolをagent用にする必要がある
     # runner = AgentLoopRunner()
     # runner = DeepAgentLoopRunner()
     intents = get_intents()
