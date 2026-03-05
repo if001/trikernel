@@ -22,11 +22,12 @@ from langmem.short_term import summarize_messages
 
 from trikernel.orchestration_kernel.runners.protcol import RunnerAPI
 from ..logging import get_logger
-from ..models import Budget, RunResult, ToolStepContext
+from ..models import RunResult
+from .models import Budget, ToolStepContext
 from ..payloads import extract_llm_input, extract_user_message
 from ..runtime import build_runnable_config
+from .models import DeepToolLoopState
 from ._shared import (
-    DeepToolLoopState,
     build_memory_context,
     budget_exceeded_text,
     budget_limit,

@@ -5,7 +5,7 @@ import os
 import sys
 from typing import Any, Dict, List, Optional
 
-from trikernel.orchestration_kernel.models import SimpleStepContext
+from trikernel.orchestration_kernel.runners.models import SimpleStepContext
 from trikernel.utils.time_utils import now_iso
 
 

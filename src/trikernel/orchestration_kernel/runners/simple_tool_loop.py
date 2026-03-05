@@ -28,15 +28,11 @@ from ._shared import (
     recent_user_messages,
     tools_text,
 )
-from ..models import Budget, RunResult, SimpleStepContext
+from ..models import RunResult
+from .models import Budget, SimpleStepContext
 from ..payloads import extract_llm_input, extract_user_message
-from ._shared import (
-    SimpleToolLoopState,
-    budget_exceeded_text,
-    budget_limit,
-    filter_tools,
-    handle_tool_error,
-)
+from .models import SimpleToolLoopState
+from ._shared import budget_exceeded_text, budget_limit, filter_tools, handle_tool_error
 from .prompts import (
     build_discover_tools_simple_prompt,
     build_tool_loop_followup_prompt,

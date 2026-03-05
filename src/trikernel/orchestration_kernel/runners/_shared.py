@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, List, Sequence, Set, TypedDict
+from typing import List, Sequence, Set
 
 from langchain_core.messages import (
     AIMessage,
@@ -10,46 +10,13 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.tools import BaseTool
-from langgraph.graph.message import add_messages
-from langmem.short_term import RunningSummary
 
 from trikernel.state_kernel.protocols import StateKernelAPI
 
 from ..logging import get_logger
-from ..models import SimpleStepContext, ToolStepContext
+from .models import SimpleStepContext, ToolStepContext
 from ...tool_kernel.kernel import ToolKernel
 from ...state_kernel.models import Task
-
-
-class BaseState(TypedDict):
-    task_id: str
-    runtime_id: str
-    messages: Annotated[List[BaseMessage], add_messages]
-
-
-class ToolLoopState(BaseState):
-    tool_set: Set[str]
-    stop: bool
-    memory_context_text: str
-
-
-class SimpleToolLoopState(ToolLoopState):
-    step_context: SimpleStepContext
-    running_summary: RunningSummary | None
-    tool_set: Set[str]
-    stop: bool
-    memory_context_text: str
-    tool_results: list[str]
-
-
-class DeepToolLoopState(BaseState):
-    tool_set: Set[str]
-    stop: bool
-    memory_context_text: str
-    tool_step_context: ToolStepContext
-    phase: str
-    phase_goal: str
-    running_summary: RunningSummary | None
 
 
 def budget_limit(task: Task, default_limit: int) -> int:
