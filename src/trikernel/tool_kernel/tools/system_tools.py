@@ -9,17 +9,9 @@ from pydantic import Field
 from typing_extensions import Annotated
 
 from .prompts import build_step_goal_prompt
-from ..runtime import ToolRuntime, get_runtime
+from ._shared import require_state_api, require_tool_llm
 
 
-def _require_runtime(state: dict) -> ToolRuntime:
-    runtime_id = state.get("runtime_id") if isinstance(state, dict) else None
-    if not isinstance(runtime_id, str) or not runtime_id:
-        raise ValueError("runtime_id is required in state")
-    runtime = get_runtime(runtime_id)
-    if runtime is None:
-        raise ValueError("runtime is required in tool runtime registry")
-    return runtime
 
 
 def step_goal(
@@ -38,8 +30,7 @@ def step_goal(
     ] = None,
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
-    runtime = _require_runtime(state)
-    state_api = runtime.state_api
+    state_api = require_state_api(state)
     task_id = state.get("task_id") if isinstance(state, dict) else None
     if not task_id:
         return {"step_goal": "", "error": "task_id_missing"}
@@ -56,7 +47,7 @@ def step_goal(
         or previous_goal
         or json.dumps(payload_data, ensure_ascii=False)
     )
-    llm_api = runtime.tool_api.tool_llm_api()
+    llm_api = require_tool_llm(state)
     prompt = build_step_goal_prompt(
         previous_goal=previous_goal,
         failure_reason=failure_reason,

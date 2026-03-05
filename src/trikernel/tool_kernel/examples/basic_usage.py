@@ -21,4 +21,4 @@ if __name__ == "__main__":
         description="Add two numbers",
     )
     kernel.tool_register(tool)
-    print([t.name for t in kernel.tool_list()])
+    print([t.name for t in kernel.tool_structured_list()])

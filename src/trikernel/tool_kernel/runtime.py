@@ -2,25 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import Lock
-from typing import Optional, Protocol
-
-from trikernel.tool_kernel.protocols import ToolLLMBase
+from typing import Optional
 
 from ..state_kernel.protocols import StateKernelAPI
-
-
-class ToolAPIProtocol(Protocol):
-    def tool_structured_list(self): ...
-    def tool_search(self, query: str): ...
-    def tool_descriptions(self): ...
-    def tool_llm_api(self) -> ToolLLMBase: ...
+from .kernel import ToolKernel
 
 
 @dataclass(frozen=True)
 class ToolRuntime:
     runtime_id: str
     state_api: StateKernelAPI
-    tool_api: ToolAPIProtocol
+    tool_api: ToolKernel
 
 
 _state_lock = Lock()

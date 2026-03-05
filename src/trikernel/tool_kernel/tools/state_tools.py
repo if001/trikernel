@@ -8,17 +8,9 @@ from langgraph.prebuilt import InjectedState
 from pydantic import Field
 from typing_extensions import Annotated
 
-from ..runtime import ToolRuntime, get_runtime
+from ._shared import require_state_api, require_tool_llm
 
 
-def _require_runtime(state: dict) -> ToolRuntime:
-    runtime_id = state.get("runtime_id") if isinstance(state, dict) else None
-    if not isinstance(runtime_id, str) or not runtime_id:
-        raise ValueError("runtime_id is required in state")
-    runtime = get_runtime(runtime_id)
-    if runtime is None:
-        raise ValueError("runtime is required in tool runtime registry")
-    return runtime
 
 
 def task_create_user_request(
@@ -27,7 +19,7 @@ def task_create_user_request(
     ],
     state: Annotated[dict, InjectedState] = {},
 ) -> str:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     return state_api.task_create("user_request", {"user_message": user_message})
 
 
@@ -52,7 +44,7 @@ def task_create_work(
     ] = None,
     state: Annotated[dict, InjectedState] = {},
 ) -> str:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     payload = {
         "message": message,
         "run_at": run_at,
@@ -73,7 +65,7 @@ def task_create_work_at(
     state: Annotated[dict, InjectedState] = {},
 ) -> str:
     _validate_run_at(str(run_at))
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     return state_api.task_create("work", {"message": message, "run_at": run_at})
 
 
@@ -100,7 +92,7 @@ def task_create_work_repeat(
         "repeat_interval_seconds": repeat_interval_seconds,
         "repeat_enabled": True if repeat_enabled is None else repeat_enabled,
     }
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     return state_api.task_create("work", payload)
 
 
@@ -114,7 +106,7 @@ def task_create_notification(
     ] = None,
     state: Annotated[dict, InjectedState] = {},
 ) -> str:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     payload = {
         "message": message,
         "severity": severity,
@@ -130,7 +122,7 @@ def task_update(
     ],
     state: Annotated[dict, InjectedState] = {},
 ) -> Optional[Dict[str, Any]]:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     task = state_api.task_update(task_id, patch)
     return task.to_dict() if task else None
 
@@ -139,7 +131,7 @@ def task_get(
     task_id: Annotated[str, Field(..., description="Task id to fetch.")],
     state: Annotated[dict, InjectedState] = {},
 ) -> Optional[Dict[str, Any]]:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     task = state_api.task_get(task_id)
     return task.to_dict() if task else None
 
@@ -153,7 +145,7 @@ def task_list(
     ] = "queued",
     state: Annotated[dict, InjectedState] = {},
 ) -> List[Dict[str, Any]]:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     task_state = task_state if task_state else "queued"
     return [task.to_dict() for task in state_api.task_list(task_type, task_state)]
 
@@ -166,7 +158,7 @@ def task_claim(
     ttl_seconds: Annotated[int, Field(..., description="Claim TTL in seconds.")],
     state: Annotated[dict, InjectedState] = {},
 ) -> Optional[str]:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     return state_api.task_claim(filter_by, claimer_id, ttl_seconds)
 
 
@@ -174,7 +166,7 @@ def task_complete(
     task_id: Annotated[str, Field(..., description="Task id to complete.")],
     state: Annotated[dict, InjectedState] = {},
 ) -> Optional[Dict[str, Any]]:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     task = state_api.task_complete(task_id)
     return task.to_dict() if task else None
 
@@ -184,7 +176,7 @@ def task_fail(
     error_info: Annotated[Dict[str, object], Field(..., description="Error payload.")],
     state: Annotated[dict, InjectedState] = {},
 ) -> Optional[Dict[str, Any]]:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     task = state_api.task_fail(task_id, error_info)
     return task.to_dict() if task else None
 
@@ -197,7 +189,7 @@ def artifact_write(
     ],
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     artifact_id = state_api.artifact_write(media_type, body, metadata)
     return {"artifact_id": artifact_id}
 
@@ -206,7 +198,7 @@ def artifact_read(
     artifact_id: Annotated[str, Field(..., description="Artifact id.")],
     state: Annotated[dict, InjectedState] = {},
 ) -> Optional[Dict[str, Any]]:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     artifact = state_api.artifact_read(artifact_id)
     return artifact.to_full_dict() if artifact else None
 
@@ -216,12 +208,12 @@ def artifact_extract(
     instructions: Annotated[str, Field(..., description="Extraction instructions.")],
     state: Annotated[dict, InjectedState] = {},
 ) -> Dict[str, Any]:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     artifact = state_api.artifact_read(artifact_id)
     if not artifact:
         return {"artifact_id": artifact_id, "error": "not_found"}
 
-    llm_api = _require_runtime(state).tool_api.tool_llm_api()
+    llm_api = require_tool_llm(state)
 
     prompt = f"extract instructions: {instructions}\n{artifact.body}"
     extracted = llm_api.generate(prompt, [])
@@ -232,12 +224,12 @@ def artifact_search(
     query: Annotated[Dict[str, object], Field(..., description="Metadata query.")],
     state: Annotated[dict, InjectedState] = {},
 ) -> List[Dict[str, Any]]:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     return [artifact.to_small_dict() for artifact in state_api.artifact_search(query)]
 
 
 def artifact_list(state: Annotated[dict, InjectedState] = {}) -> List[Dict[str, Any]]:
-    state_api = _require_runtime(state).state_api
+    state_api = require_state_api(state)
     artifacts = state_api.artifact_list()
     result = []
     for artifact in artifacts:

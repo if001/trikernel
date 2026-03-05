@@ -19,6 +19,6 @@ def test_tool_register_and_list():
         description="Add numbers",
     )
     kernel.tool_register(tool)
-    tools = kernel.tool_list()
+    tools = kernel.tool_structured_list()
     assert tools
     assert tools[0].name == "demo.add"

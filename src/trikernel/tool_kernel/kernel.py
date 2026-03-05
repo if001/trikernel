@@ -68,16 +68,13 @@ class ToolKernel:
             or query_lower in (self._tools[name].tool.description or "").lower()
         ]
 
-    def tool_list(self) -> List[BaseTool]:
-        return [tool.tool for tool in self._tools.values()]
-
     def tool_descriptions(self) -> List[Dict[str, Any]]:
         return [
             {
                 "tool_name": tool.name,
                 "description": tool.description or "",
             }
-            for tool in self.tool_list()
+            for tool in self.tool_structured_list()
         ]
 
     def tool_structured_list(self) -> List[BaseTool]:
@@ -95,7 +92,7 @@ class ToolKernel:
     def debug(self):
         from langchain_core.utils.function_calling import convert_to_openai_tool
 
-        for v in self.tool_list():
+        for v in self.tool_structured_list():
             print(v.name)
             print(convert_to_openai_tool(v))
             print("-" * 10)

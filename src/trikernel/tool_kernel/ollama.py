@@ -1,13 +1,28 @@
 from __future__ import annotations
 
+import os
+from dataclasses import dataclass
 from typing import Any, List, Optional
 
 from langchain_ollama import ChatOllama
 from langchain_core.messages import AIMessage, HumanMessage
 
-from .config import OllamaConfig, load_ollama_config
+from ..utils.env import load_env
 from .logging import get_logger
 from .protocols import ToolLLMBase
+
+
+@dataclass(frozen=True)
+class OllamaConfig:
+    base_url: str
+    small_model: str
+
+
+def load_ollama_config() -> OllamaConfig:
+    load_env()
+    base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    small_model = os.environ.get("OLLAMA_SMALL_MODEL", "")
+    return OllamaConfig(base_url=base_url, small_model=small_model)
 
 
 class ToolOllamaLLM(ToolLLMBase):

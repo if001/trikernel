@@ -15,7 +15,10 @@ async def main() -> None:
         register_default_tools(kernel)
         for tool in build_web_tools():
             kernel.tool_register(tool)
-        print("Registered web tools:", [tool.name for tool in kernel.tool_list()])
+        print(
+            "Registered web tools:",
+            [tool.name for tool in kernel.tool_structured_list()],
+        )
 
 
 if __name__ == "__main__":
