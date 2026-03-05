@@ -14,7 +14,6 @@ from langchain_core.tools import BaseTool
 from trikernel.state_kernel.protocols import StateKernelAPI
 
 from ..logging import get_logger
-from .models import SimpleStepContext, ToolStepContext
 from ...tool_kernel.kernel import ToolKernel
 from ...state_kernel.models import Task
 

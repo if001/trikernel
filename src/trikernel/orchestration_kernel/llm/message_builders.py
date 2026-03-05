@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, Huma
 from langchain_core.tools import BaseTool
 
 from ..logging import get_logger
-from ..models import LLMResponse, LLMToolCall
+from .models import LLMResponse, LLMToolCall
 from ..payloads import extract_llm_input
 from ...state_kernel.models import Task
 

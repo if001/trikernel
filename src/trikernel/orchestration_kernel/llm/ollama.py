@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 
 from ..logging import get_logger
-from ..models import LLMResponse, LLMToolCall
+from .models import LLMResponse, LLMToolCall
 from .config import OllamaConfig, load_ollama_config
 from .message_builders import (
     build_messages,
