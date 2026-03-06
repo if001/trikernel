@@ -137,7 +137,7 @@ def build_tool_loop_prompt_simple(
     )
     summary_block = f"## Conversation Summary\n{summary}\n\n" if summary else ""
     tool_result_block = (
-        f"## Tool Results\n" + "\n".join([f"- {v}\n" for v in tool_results])
+        f"## Tool Results\n" + "\n".join([f"- {v}" for v in tool_results])
         if tool_results
         else ""
     )
@@ -158,6 +158,8 @@ def build_tool_loop_prompt_deep(
     step_context_text: str,
     memory_context_text: str = "",
     summary: Optional[str] = None,
+    notes: list[str] = [],
+    last_observation: str = "",
 ) -> tuple[str, str]:
     work_space_dir = os.environ.get("work_space_dir")
 
@@ -196,11 +198,21 @@ def build_tool_loop_prompt_deep(
         f"## Memory context\n{memory_context_text}\n\n" if memory_context_text else ""
     )
     summary_block = f"## Conversation Summary:\n{summary}\n\n" if summary else ""
+    notes_block = (
+        "# ツール結果\n" + "\n".join([f"- {v}" for v in notes]) + "\n\n"
+        if notes
+        else "## "
+    )
+    last_observation_block = (
+        f"## Observation Result\n{last_observation}\n\n" if last_observation else ""
+    )
     prompt = (
         f"{memory_block}"
         f"{summary_block}"
         "## Step context\n"
         f"{step_context_text}\n\n"
+        f"{notes_block}"
+        f"{last_observation_block}"
         "## User input\n"
         f"{user_message}"
     )
@@ -278,6 +290,7 @@ def build_tool_loop_followup_prompt(
     phase_goal: Optional[str],
     memory_context_text: str = "",
     summary: Optional[str] = None,
+    tool_results: list[str] = [],
 ) -> tuple[str, str]:
     system = (
         "あなたは誠実で専門的なアシスタントです。\n"
@@ -302,13 +315,19 @@ def build_tool_loop_followup_prompt(
         if notes
         else "## "
     )
+    tool_result_block = (
+        f"## Tool Results\n" + "\n".join([f"- {v}" for v in tool_results]) + "\n\n"
+        if tool_results
+        else ""
+    )
     phase_block = f"## Goal\n{phase_goal}\n\n" if phase_goal else ""
     summary_block = f"## Conversation Summary:\n{summary}\n\n" if summary else ""
     prompt = (
-        f"{memory_block}"
+        # f"{memory_block}"
         f"{summary_block}"
         f"{phase_block}"
         f"{notes_block}"
+        f"{tool_result_block}"
         ## ---- ##
         "# User input\n"
         f"{user_message}"

@@ -90,7 +90,7 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
                 )
             tools = self._tool_api.tool_structured_list()
             tool_list_text = tools_text(self._tool_api)
-            step_context = _initial_step_context(task)
+            step_context = _initial_step_context(task, self._recursion_limit)
             graph = _build_graph(
                 self._llm_api,
                 self._large_llm_api,
@@ -187,11 +187,11 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
             )
 
 
-def _initial_step_context(task: Task) -> SimpleStepContext:
+def _initial_step_context(task: Task, limit: int) -> SimpleStepContext:
     payload = task.payload or {}
     budget_payload = payload.get("budget") or {}
     budget = Budget(
-        remaining_steps=int(budget_payload.get("remaining_steps", 10)),
+        remaining_steps=int(budget_payload.get("remaining_steps", limit)),
         spent_steps=int(budget_payload.get("spent_steps", 0)),
     )
     role = "main" if task.task_type == "user_request" else "worker"
@@ -217,10 +217,17 @@ def _build_graph(
     graph = StateGraph(SimpleToolLoopState)
 
     def discover(state: SimpleToolLoopState):
+        logger.info("discover start")
         _last = state["messages"][-1]
         logger.info(f"last: {_last}")
         if isinstance(_last, ToolMessage):
-            state["tool_results"].append(str(_last.name) + ":" + str(_last.content))
+            _tool_result = (
+                "used tool name: "
+                + str(_last.name)
+                + ", tool result: "
+                + str(_last.content)
+            )
+            state["tool_results"].append(_tool_result)
         if isinstance(_last, HumanMessage):
             logger.warning("last is HumanMessage...")
 
@@ -242,6 +249,7 @@ def _build_graph(
         )
         query = response.content or ""
         selected = set(tool_api.tool_search(str(query)))
+        logger.info("discover done")
         return {"tool_set": selected}
 
     def agent(state: SimpleToolLoopState):
@@ -312,25 +320,34 @@ def _build_graph(
     tool_node = ToolNode(list(tools), handle_tool_errors=handle_tool_error)
 
     def build_memory(state: SimpleToolLoopState):
+        logger.info("build_memory start")
         memory_context_text = build_memory_context(
             state_api,
             state.get("runtime_id", ""),
             user_message,
             log_details=True,
         )
+        logger.info("build_memory done")
         return {"memory_context_text": memory_context_text}
 
     def followup(state: SimpleToolLoopState):
+        tool_results = state["tool_results"]
+        _last = state["messages"][-1]
+        if isinstance(_last, ToolMessage):
+            tool_results += f"### 最終的なツール結果\n{str(_last.content)}\n\n"
         memory_context_text = state.get("memory_context_text", "")
         messages = recent_user_messages(state["messages"], last_n=2)
         summary = state["running_summary"]
+
         if task_type == "user_request":
             system, prompt = build_tool_loop_followup_prompt(
                 user_message=user_message,
                 notes=[],
                 phase_goal=None,
-                memory_context_text=memory_context_text,
+                # memory_context_text=memory_context_text,
+                memory_context_text="",
                 summary=summary.summary if summary else None,
+                tool_results=tool_results,
             )
         elif task_type == "notification":
             system, prompt = build_tool_loop_followup_prompt_for_notification(
@@ -354,10 +371,12 @@ def _build_graph(
             + [HumanMessage(content=prompt)]
         )
         logger.info(f"debug folow up prompt::: {_in}")
+        logger.info(f"debug folow up response::: {response}")
         return {"messages": [response]}
 
     def summarization_node(state: SimpleToolLoopState):
         messages: list[AnyMessage] = cast(list[AnyMessage], state["messages"])
+        logger.info(f"summarization_node")
         summarization_result = summarize_messages(
             messages,
             running_summary=state.get("running_summary"),

@@ -12,6 +12,7 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
+    ToolMessage,
 )
 from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.tools import BaseTool
@@ -287,12 +288,16 @@ def _build_graph(
             }
         summary = state["running_summary"]
         memory_context_text = state.get("memory_context_text", "")
+        tool_step_context: ToolStepContext = state["tool_step_context"]
         if task_type == "user_request":
             system, prompt = build_tool_loop_prompt_deep(
                 user_message=user_message,
-                step_context_text=state["tool_step_context"].to_str(),
-                memory_context_text=memory_context_text,
+                step_context_text=tool_step_context.to_str(),
+                # memory_context_text=memory_context_text,
+                memory_context_text="",
                 summary=summary.summary if summary else None,
+                notes=tool_step_context.notes,
+                last_observation=tool_step_context.last_observation,
             )
         elif task_type == "notification":
             system, prompt = build_tool_loop_prompt_simple_for_notification(
@@ -345,7 +350,7 @@ def _build_graph(
                 f"may be token over... in: {in_token_cnt}, out: {out_token_cnt}, total: {total_token}"
             )
         logger.info(f"act response: {response}")
-        time.sleep(5)
+        time.sleep(10)
         return {
             "messages": [response],
             "tool_step_context": state["tool_step_context"],
@@ -366,13 +371,20 @@ def _build_graph(
         return {"tool_step_context": state["tool_step_context"]}
 
     def followup(state: DeepToolLoopState):
+        tool_step_context: ToolStepContext = state["tool_step_context"]
+        _last = state["messages"][-1]
+        if isinstance(_last, ToolMessage):
+            tool_step_context.notes.append(
+                f"### 最終的なツール結果\n{str(_last.content)}\n\n"
+            )
+
         memory_context_text = state.get("memory_context_text", "")
         messages = recent_user_messages(state["messages"], last_n=2)
 
         if task_type == "user_request":
             system, prompt = build_tool_loop_followup_prompt(
                 user_message=user_message,
-                notes=state["tool_step_context"].notes,
+                notes=tool_step_context.notes,
                 phase_goal=state["phase_goal"],
                 memory_context_text=memory_context_text,
             )
