@@ -251,7 +251,7 @@ def build_state_tools() -> List[BaseTool]:
         # ),
         StructuredTool.from_function(
             task_create_work,
-            name="task.create_work",
+            name="create_work",
             description=(
                 "Start a worker deep-work job for investigations that may exceed the main agent’s per-step tool-call budget.\n"
                 "Use when the main loop needs to offload long-running research / multi-hop browsing / heavy extraction beyond allowed tool iterations.\n"
@@ -261,7 +261,7 @@ def build_state_tools() -> List[BaseTool]:
         ),
         StructuredTool.from_function(
             task_create_work_at,
-            name="task.create_work_at",
+            name="create_work_at",
             description=(
                 "Schedule a worker job at a specific run_at (ISO8601).\n"
                 "Use for reminders, delayed checks, or actions that must happen at a certain time.\n"
@@ -270,7 +270,7 @@ def build_state_tools() -> List[BaseTool]:
         ),
         StructuredTool.from_function(
             task_create_work_repeat,
-            name="task.create_work_repeat",
+            name="create_work_repeat",
             description=(
                 "Schedule a repeating worker job at a fixed interval (repeat_interval_seconds >= 3600).\n"
                 "Use for periodic monitoring/digests/maintenance.\n"
@@ -362,7 +362,7 @@ def build_task_tools() -> List[BaseTool]:
         # ),
         StructuredTool.from_function(
             task_create_work,
-            name="task.create_work",
+            name="create_work",
             description=(
                 "Start a worker deep-work job for investigations that may exceed the main agent’s per-step tool-call budget.\n"
                 "Use when the main loop needs to offload long-running research / multi-hop browsing / heavy extraction beyond allowed tool iterations.\n"
@@ -372,7 +372,7 @@ def build_task_tools() -> List[BaseTool]:
         ),
         StructuredTool.from_function(
             task_create_work_at,
-            name="task.create_work_at",
+            name="create_work_at",
             description=(
                 "Schedule a worker job at a specific run_at (ISO8601).\n"
                 "Use for reminders, delayed checks, or actions that must happen at a certain time.\n"
@@ -381,7 +381,7 @@ def build_task_tools() -> List[BaseTool]:
         ),
         StructuredTool.from_function(
             task_create_work_repeat,
-            name="task.create_work_repeat",
+            name="create_work_repeat",
             description=(
                 "Schedule a repeating worker job at a fixed interval (repeat_interval_seconds >= 3600).\n"
                 "Use for periodic monitoring/digests/maintenance.\n"
@@ -390,12 +390,12 @@ def build_task_tools() -> List[BaseTool]:
         ),
         StructuredTool.from_function(
             task_get,
-            name="task.get",
+            name="get_task",
             description="Fetch a task by id for debugging, tracing, or runner logic.",
         ),
         StructuredTool.from_function(
             task_list,
-            name="task.list",
+            name="get_task_list",
             description="List tasks by type/state for runner polling, dashboards, or maintenance.",
         ),
     ]

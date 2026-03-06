@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from trikernel.utils.time_utils import now_iso
 
@@ -10,7 +9,6 @@ def build_tool_loop_prompt_simple(
     user_message: str,
     step_context_text: str,
     memory_context_text: str = "",
-    summary: Optional[str] = None,
     tool_results: list[str] = [],
 ) -> tuple[str, str]:
     work_space_dir = os.environ.get("work_space_dir")
@@ -63,7 +61,6 @@ def build_tool_loop_prompt_simple(
         "- 他のワーカーの状況は task.list で取得できる。"
         ""
     )
-    summary_block = f"## Conversation Summary\n{summary}\n\n" if summary else ""
     tool_result_block = (
         f"## Tool Results\n" + "\n".join([f"- {v}" for v in tool_results])
         if tool_results
@@ -71,7 +68,6 @@ def build_tool_loop_prompt_simple(
     )
     prompt = (
         f"{memory_block}"
-        f"{summary_block}"
         "# Step context\n"
         f"{step_context_text}\n\n"
         f"{tool_result_block}"
@@ -86,7 +82,6 @@ def build_discover_tools_simple_prompt(
     tools_text: str,
     step_context_text: str,
     memory_context_text: str = "",
-    summary: Optional[str] = None,
 ) -> tuple[str, str]:
     system = (
         "あなたは、ユーザーの入力を分析し、膨大なツールセットの中から最適なツールを検索するための「検索クエリ」を作成するエキスパートです。\n\n"
@@ -111,10 +106,8 @@ def build_discover_tools_simple_prompt(
     memory_block = (
         f"Memory context:\n{memory_context_text}\n\n" if memory_context_text else ""
     )
-    summary_block = f"# Conversation Summary:\n{summary}\n\n" if summary else ""
     prompt = (
         f"{memory_block}"
-        f"{summary_block}"
         f"# Step context: \n{step_context_text}\n\n"
         f"# Tool Overview: \n{tools_text}\n\n"
         f"# User Input: \n{user_input}\n\n"

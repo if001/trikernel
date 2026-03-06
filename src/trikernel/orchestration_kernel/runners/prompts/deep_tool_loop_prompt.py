@@ -10,7 +10,6 @@ def build_tool_loop_prompt_deep(
     user_message: str,
     step_context_text: str,
     memory_context_text: str = "",
-    summary: Optional[str] = None,
     phase_goal: str = "",
 ) -> tuple[str, str]:
     work_space_dir = os.environ.get("work_space_dir")
@@ -28,12 +27,24 @@ def build_tool_loop_prompt_deep(
         "- 内部用語（ノード名・stateキー・tool_set・budget等）をユーザーに見せない。"
         "- ツールを呼ばない場合は、(1)これまでに得られた結果の要約 (2)結論またはユーザーへの質問 を簡潔に書く。\n"
         "\n"
+        "## フェーズの定義\n"
+        "- get:\n"
+        "goalに対して必要な情報・資料・対象を取得する段階です。情報が不足している、対象が未取得、参照先が未確定の場合に選択してください。\n"
+        "- work:\n"
+        "取得済みの情報・資料を加工・解釈・整理・抽出・統合、または外部タスクの作成などを行う段階です。\n"
+        "必要な情報は存在するが、まだ最終回答に使える形になっていない場合に選択してください。\n"
+        "- finish\n"
+        "goalを達成し、すでに十分な情報があり、ツールを使わずに最終回答を生成できる段階です。\n"
+        "挨拶など簡単に回答できる場合、追加のツール利用が不要な場合に選択してください。\n\n"
+        "\n"
         "## ツール利用のルール\n"
         "1) 追加情報がないと前進できない「必須の不明点」がある場合：\n"
         "   - ツールは呼ばず、ユーザーへ質問する文章を出力する（followupへ）。\n"
         "2) 上記以外では、タスク完了に必要な情報が揃うまでツールを使って進める。\n"
         "   - phaseがGET,WORKの場合必ずツールを利用する\n"
         "   - ツールの呼び出し方を間違えている場合、修正し再度ツールを呼び出す。\n"
+        "   - 直前のツール結果から不足情報が見える場合、次に必要なツールを選び連鎖的に進める。\n"
+        "   - 連鎖の例: 検索クエリ作成 → 検索 → ページ取得 → 抽出 → 追加検索。\n"
         "3) remaining_step が少ない場合は、追加ツールを控え、要約して質問/結論に寄せる。\n"
         "4) 複雑な調査や長い処理が必要で main のツール回数制限を超えそうな場合：\n"
         "   - task.create_work でワーカーに依頼する（goalと成果物を具体的に指示）。\n"
@@ -49,12 +60,10 @@ def build_tool_loop_prompt_deep(
     memory_block = (
         f"## Memory context\n{memory_context_text}\n\n" if memory_context_text else ""
     )
-    summary_block = f"## Conversation Summary:\n{summary}\n\n" if summary else ""
 
     goal_block = f"## Previous Goal\n{phase_goal}\n\n" if phase_goal else ""
     prompt = (
         f"{memory_block}"
-        f"{summary_block}"
         f"{goal_block}"
         "## Step context\n"
         f"{step_context_text}\n\n"
@@ -70,7 +79,6 @@ def build_discover_tools_deep_prompt(
     step_context_text: str,
     memory_context_text: str = "",
     phase_goal: str = "",
-    summary: Optional[str] = None,
 ) -> tuple[str, str]:
     system = (
         "あなたは、ユーザーの入力を分析し、膨大なツールセットの中から最適なツールを検索するための「検索クエリ」を作成するエキスパートです。\n\n"
@@ -104,10 +112,8 @@ def build_discover_tools_deep_prompt(
     memory_block = (
         f"# Memory context:\n{memory_context_text}\n\n" if memory_context_text else ""
     )
-    summary_block = f"# Conversation Summary:\n{summary}\n\n" if summary else ""
     prompt = (
         f"{memory_block}"
-        f"{summary_block}"
         f"# Step context\n{step_context_text}\n\n"
         f"# Phase goal\n{phase_goal}\n\n"
         f"# Tool Overview\n{tools_text}\n\n"
@@ -134,19 +140,20 @@ def build_plan_prompt(
         "# フェーズの定義\n"
         "次のいずれか1つを選択してください：\n"
         "- get:\n"
-        "必要な情報・資料・対象を取得する段階です。情報が不足している、対象が未取得、参照先が未確定の場合に選択してください。\n"
+        "goalに対して必要な情報・資料・対象を取得する段階です。情報が不足している、対象が未取得、参照先が未確定の場合に選択してください。\n"
         "- work:\n"
         "取得済みの情報・資料を加工・解釈・整理・抽出・統合、または外部タスクの作成などを行う段階です。\n"
         "必要な情報は存在するが、まだ最終回答に使える形になっていない場合に選択してください。\n"
         "- finish\n"
-        "すでに十分な情報があり、ツールを使わずに最終回答を生成できる段階です。\n"
+        "goalを達成し、すでに十分な情報があり、ツールを使わずに最終回答を生成できる段階です。\n"
         "挨拶など簡単に回答できる場合、追加のツール利用が不要な場合に選択してください。\n\n"
         "# 重要な制約\n"
+        "- ツール呼び出しに失敗している場合、引数を間違えていれば引数を修正して再度実行すること。\n"
         "- 必ず1つのフェーズのみを選択してください。\n"
         "- ツール名を出力してはいけません。\n"
         "- 実行手順の詳細は書かず、「次の反復の狙い」のみを簡潔に記述してください。\n"
-        "- 不必要にgetを繰り返さないでください。\n"
-        "- 不必要にworkを繰り返さないでください。\n"
+        "- phase_goalは「次の1アクションで達成できる小さな目的」に限定してください。\n"
+        "  例: 「特定ページの本文を取得」「検索結果の上位URLを列挙」「特定情報を抽出」\n"
         "- remaining_stepは残されたステップ数です。spent_stepsは消費したステップ数です。\n\n"
         "# 出力形式（JSON）\n"
         "JSON以外の出力は禁止です。\n"
@@ -195,7 +202,6 @@ def build_observe_prompt(
     notes: List[str],
     need_clarification: List[str],
     error_summary: str,
-    summary: Optional[str] = None,
 ) -> tuple[str, str]:
     system = """あなたは、ツール実行結果を次の反復のための状態(state)に反映する「観測・圧縮モジュール」です。
 
@@ -204,7 +210,7 @@ def build_observe_prompt(
 
 # 目的（最重要）
 - ツール結果の“全文”を保持しない
-- 次の反復に必要なと「要点（notes）」だけを抽出して state に入れる
+- 次の反復に必要な「要点（notes）」だけを抽出して state に入れる
 - 進捗の有無・停滞・エラーを検知し、planに渡す
 
 # 重要な制約
@@ -222,6 +228,8 @@ def build_observe_prompt(
    - ユーザーへの確認事項があれば短い質問文で列挙
 4) notes:
    - 次の反復に必要な要点を箇条書きで簡潔に
+   - 不足している情報/次に必要な取得対象（URL/検索クエリ/属性）を必ず含める
+   - 次にやるべき1アクションを明示する
 
 # 出力形式（JSON）
 JSON以外の出力は禁止です。
@@ -234,12 +242,9 @@ JSON以外の出力は禁止です。
   "stop": true | false
 }"""
 
-    summary_block = f"# Conversation Summary:\n{summary}\n\n" if summary else ""
     note_text = "\n".join(notes)
     need_cl_text = "\n".join(need_clarification)
-    prompt = f"""{summary_block}
-
-# 直前のフェーズと狙い
+    prompt = f"""# 直前のフェーズと狙い
 phase: {phase}
 phase_goal: {phase_goal}
 

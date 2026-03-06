@@ -251,7 +251,6 @@ def _build_graph(
 
     def discover(state: DeepToolLoopState):
         messages = recent_user_messages(state["messages"], last_n=0)
-        summary = state["running_summary"]
         phase_goal = state["phase_goal"]
         memory_context_text = state.get("memory_context_text", "")
         if state.get("phase") == "FINISH":
@@ -263,7 +262,6 @@ def _build_graph(
             # memory_context_text=memory_context_text,
             memory_context_text="",
             phase_goal=phase_goal,
-            summary=summary.summary if summary else None,
         )
 
         response = model.invoke(
@@ -288,7 +286,6 @@ def _build_graph(
                 "messages": [AIMessage(content=budget_exceeded_text())],
                 "stop": True,
             }
-        summary = state["running_summary"]
         memory_context_text = state.get("memory_context_text", "")
         phase_goal = state["phase_goal"]
         tool_step_context: ToolStepContext = state["tool_step_context"]
@@ -299,7 +296,6 @@ def _build_graph(
                 # memory_context_text=memory_context_text,
                 memory_context_text="",
                 phase_goal=phase_goal,
-                summary=summary.summary if summary else None,
             )
         elif task_type == "notification":
             system, prompt = build_tool_loop_prompt_simple_for_notification(
@@ -316,11 +312,13 @@ def _build_graph(
 
         messages = recent_user_messages(state["messages"], last_n=2)
         if state.get("phase") == "FINISH":
-            response = large_model.invoke(
+            _input = (
                 [SystemMessage(content=system)]
                 + list(messages)
                 + [HumanMessage(content=prompt)]
             )
+            response = large_model.invoke(_input)
+            logger.info(f"act finish prompt: {_input}")
         else:
             # logger.info(f"debug tools: {tools}")
             allowed = filter_tools(tools, state["tool_set"])
@@ -328,17 +326,13 @@ def _build_graph(
             logger.info(f"allowed_name: {_allowed_name}")
             logger.info(f"allowed: {allowed}")
             ## tool_choiceはollamaではサポートされてないらしい
-            response = large_model.bind_tools(allowed, tool_choice="any").invoke(
+            _input = (
                 [SystemMessage(content=system)]
                 + list(messages)
                 + [HumanMessage(content=prompt)]
             )
-            _in = (
-                [SystemMessage(content=system)]
-                + list(messages)
-                + [HumanMessage(content=prompt)]
-            )
-            logger.info(f"act prompt: {_in}")
+            response = large_model.bind_tools(allowed, tool_choice="any").invoke(_input)
+            logger.info(f"act prompt: {_input}")
 
         state["tool_step_context"].budget.spent_steps += 1
         state["tool_step_context"].budget.remaining_steps -= 1
@@ -362,14 +356,15 @@ def _build_graph(
 
     def observe(state: DeepToolLoopState):
         _s = state["messages"]
-        logger.info(f"observe {_s}")
+        if isinstance(_s[-1], ToolMessage):
+            logger.info(f"observe tool message: {_s[-1]}")
 
         observation = _observe_with_llm(large_model, state)
         state["tool_step_context"].last_observation = observation.last_observation
         state["tool_step_context"].error_summary = observation.error_summary
         state["tool_step_context"].need_clarification = observation.need_clarification
         state["tool_step_context"].notes = observation.notes
-        # time.sleep(3)
+        time.sleep(10)
         return {"tool_step_context": state["tool_step_context"]}
 
     def followup(state: DeepToolLoopState):
@@ -533,7 +528,7 @@ def _plan_with_llm(
     summary = state["running_summary"]
     system, prompt = build_plan_prompt(
         user_message,
-        memory_context_text,
+        "",
         phase=state["phase"],
         phase_goal=state["phase_goal"],
         last_observation=_ctx.last_observation,
@@ -572,7 +567,6 @@ def _observe_with_llm(
 ) -> _ObservationResult:
     _ctx: ToolStepContext = state["tool_step_context"]
     tool_result = _last_tool_result(state["messages"])
-    summary = state["running_summary"]
     system, prompt = build_observe_prompt(
         tool_result=tool_result,
         phase=state["phase"],
@@ -581,7 +575,6 @@ def _observe_with_llm(
         notes=_ctx.notes,
         need_clarification=_ctx.need_clarification,
         error_summary=_ctx.error_summary,
-        summary=summary.summary if summary else None,
     )
     logger.info(f"observe system: {system}")
     logger.info(f"observe prompt: {prompt}")

@@ -232,13 +232,11 @@ def _build_graph(
 
         messages = recent_user_messages(state["messages"], last_n=2)
         memory_context_text = state.get("memory_context_text", "")
-        summary = state["running_summary"]
         system, prompt = build_discover_tools_simple_prompt(
             user_input=user_message,
             tools_text=tools_text,
             step_context_text=state["step_context"].to_str(),
             memory_context_text=memory_context_text,
-            summary=summary.summary if summary else None,
         )
 
         response = model.invoke(
@@ -257,7 +255,6 @@ def _build_graph(
                 "messages": [AIMessage(content=budget_exceeded_text())],
                 "stop": True,
             }
-        summary = state["running_summary"]
         memory_context_text = state.get("memory_context_text", "")
         tool_results = state["tool_results"]
         _last = state["messages"][-1]
@@ -269,7 +266,6 @@ def _build_graph(
                 user_message=user_message,
                 step_context_text=state["step_context"].to_str(),
                 memory_context_text=memory_context_text,
-                summary=summary.summary if summary else None,
                 tool_results=tool_results,
             )
         elif task_type == "notification":
