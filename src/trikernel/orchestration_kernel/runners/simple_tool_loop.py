@@ -33,12 +33,11 @@ from .models import Budget, SimpleStepContext
 from ..payloads import extract_llm_input, extract_user_message
 from .models import SimpleToolLoopState
 from ._shared import budget_exceeded_text, budget_limit, filter_tools, handle_tool_error
-from .prompts import (
-    build_discover_tools_simple_prompt,
+from .prompts.simple_tool_loop_prompt import build_discover_tools_simple_prompt, build_tool_loop_prompt_simple
+from .prompts.tool_loop_common_prompt import (
     build_tool_loop_followup_prompt,
     build_tool_loop_followup_prompt_for_notification,
     build_tool_loop_followup_prompt_for_worker,
-    build_tool_loop_prompt_simple,
     build_tool_loop_prompt_simple_for_notification,
     build_tool_loop_prompt_simple_for_worker,
 )

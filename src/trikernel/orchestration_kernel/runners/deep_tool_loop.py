@@ -40,15 +40,16 @@ from ._shared import (
     recent_user_messages,
     tools_text,
 )
-from .prompts import (
+from .prompts.deep_tool_loop_prompt import (
     build_discover_tools_deep_prompt,
     build_observe_prompt,
     build_plan_prompt,
+    build_tool_loop_prompt_deep,
+)
+from .prompts.tool_loop_common_prompt import (
     build_tool_loop_followup_prompt,
     build_tool_loop_followup_prompt_for_notification,
     build_tool_loop_followup_prompt_for_worker,
-    build_tool_loop_prompt_deep,
-    build_tool_loop_prompt_simple,
     build_tool_loop_prompt_simple_for_notification,
     build_tool_loop_prompt_simple_for_worker,
 )
@@ -259,7 +260,8 @@ def _build_graph(
             user_input=user_message,
             tools_text=tools_text,
             step_context_text=state["tool_step_context"].to_str(),
-            memory_context_text=memory_context_text,
+            # memory_context_text=memory_context_text,
+            memory_context_text="",
             phase_goal=phase_goal,
             summary=summary.summary if summary else None,
         )
@@ -288,6 +290,7 @@ def _build_graph(
             }
         summary = state["running_summary"]
         memory_context_text = state.get("memory_context_text", "")
+        phase_goal = state["phase_goal"]
         tool_step_context: ToolStepContext = state["tool_step_context"]
         if task_type == "user_request":
             system, prompt = build_tool_loop_prompt_deep(
@@ -295,9 +298,8 @@ def _build_graph(
                 step_context_text=tool_step_context.to_str(),
                 # memory_context_text=memory_context_text,
                 memory_context_text="",
+                phase_goal=phase_goal,
                 summary=summary.summary if summary else None,
-                notes=tool_step_context.notes,
-                last_observation=tool_step_context.last_observation,
             )
         elif task_type == "notification":
             system, prompt = build_tool_loop_prompt_simple_for_notification(
@@ -372,11 +374,11 @@ def _build_graph(
 
     def followup(state: DeepToolLoopState):
         tool_step_context: ToolStepContext = state["tool_step_context"]
-        _last = state["messages"][-1]
-        if isinstance(_last, ToolMessage):
-            tool_step_context.notes.append(
-                f"### 最終的なツール結果\n{str(_last.content)}\n\n"
-            )
+        # _last = state["messages"][-1]
+        # if isinstance(_last, ToolMessage):
+        #     tool_step_context.notes.append(
+        #         f"### 最終的なツール結果\n{str(_last.content)}\n\n"
+        #     )
 
         memory_context_text = state.get("memory_context_text", "")
         messages = recent_user_messages(state["messages"], last_n=2)
@@ -386,7 +388,9 @@ def _build_graph(
                 user_message=user_message,
                 notes=tool_step_context.notes,
                 phase_goal=state["phase_goal"],
-                memory_context_text=memory_context_text,
+                last_observation=tool_step_context.last_observation,
+                # memory_context_text=memory_context_text,
+                memory_context_text="",
             )
         elif task_type == "notification":
             system, prompt = build_tool_loop_followup_prompt_for_notification(

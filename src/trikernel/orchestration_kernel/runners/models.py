@@ -46,13 +46,15 @@ class ToolStepContext:
     budget: Budget = field(default_factory=lambda: Budget(remaining_steps=5))
 
     def to_str(self) -> str:
+        note_text = "\n".join([f"- {v}" for v in self.notes])
+
         return (
-            f"- ツール利用の結果: {self.notes}\n"
-            f"- last_observation: {self.last_observation}\n"
-            f"- error_summary: {self.error_summary}\n"
-            f"- need_clarification: {self.need_clarification}\n"
-            f"- remaining_step: {self.budget.remaining_steps}\n"
-            f"- spent_steps: {self.budget.spent_steps}\n"
+            f"### ツール利用の結果\n{note_text}\n\n"
+            f"### last_observation\n {self.last_observation}\n\n"
+            f"### error_summary\n {self.error_summary}\n\n"
+            f"### need_clarification\n {self.need_clarification}\n\n"
+            f"### remaining_step\n{self.budget.remaining_steps}\n\n"
+            f"### spent_steps\n{self.budget.spent_steps}\n\n"
         )
 
 

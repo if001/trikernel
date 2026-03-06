@@ -20,9 +20,7 @@ from ..logging import get_logger
 from ..models import RunResult
 from ..payloads import extract_llm_input, extract_user_message
 from ..runtime import build_runnable_config
-from .prompts import (
-    build_agent_prompt,
-)
+from .prompts.agent_prompt import build_agent_prompt
 from ...state_kernel.models import Task
 from ...state_kernel.protocols import StateKernelAPI
 from ...state_kernel.core.message_store_interface import MessageStoreProtocol
