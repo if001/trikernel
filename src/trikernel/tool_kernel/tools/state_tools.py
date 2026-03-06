@@ -11,8 +11,6 @@ from typing_extensions import Annotated
 from ._shared import require_state_api, require_tool_llm
 
 
-
-
 def task_create_user_request(
     user_message: Annotated[
         str, Field(..., description="User message for the main runner.")
@@ -291,12 +289,12 @@ def build_state_tools() -> List[BaseTool]:
         # ),
         StructuredTool.from_function(
             task_get,
-            name="task.get",
+            name="get_task",
             description="Fetch a task by id for debugging, tracing, or runner logic.",
         ),
         StructuredTool.from_function(
             task_list,
-            name="task.list",
+            name="get_task_list",
             description="List tasks by type/state for runner polling, dashboards, or maintenance.",
         ),
         # StructuredTool.from_function(
@@ -316,7 +314,7 @@ def build_state_tools() -> List[BaseTool]:
         # ),
         StructuredTool.from_function(
             artifact_write,
-            name="artifact.write",
+            name="write_artifact",
             description=(
                 "Persist an artifact (text body + media_type + metadata) for later retrieval via semantic search and reuse across steps/workers.\n"
                 "Use to store fetched web content, intermediate results, or user-requested temporary notes."
@@ -324,7 +322,7 @@ def build_state_tools() -> List[BaseTool]:
         ),
         StructuredTool.from_function(
             artifact_read,
-            name="artifact.read",
+            name="read_artifact",
             description=(
                 "Read a stored artifact by id (returns full body).\n"
                 "Use when you already know the exact artifact to reuse."
@@ -332,7 +330,7 @@ def build_state_tools() -> List[BaseTool]:
         ),
         StructuredTool.from_function(
             artifact_extract,
-            name="artifact.extract",
+            name="extract_artifact",
             description=(
                 "Run LLM-based extraction over an artifact specified by id using provided instructions (e.g., pull facts, make bullet notes, extract entities).\n"
                 "Use after artifact.search when the body is long and you only need specific information; prefer this over artifact.read when possible."
@@ -340,7 +338,7 @@ def build_state_tools() -> List[BaseTool]:
         ),
         StructuredTool.from_function(
             artifact_search,
-            name="artifact.search",
+            name="search_artifact",
             description=(
                 "Semantic search over stored artifacts using an embedding query against artifact bodies.\n"
                 "Returns artifact IDs only (and optionally scores if available).\n"
@@ -349,7 +347,7 @@ def build_state_tools() -> List[BaseTool]:
         ),
         StructuredTool.from_function(
             artifact_list,
-            name="artifact.list",
+            name="get_list_artifact",
             description="List stored artifacts for inspection/debugging. Prefer artifact.search for finding relevant artifacts by meaning.",
         ),
     ]
