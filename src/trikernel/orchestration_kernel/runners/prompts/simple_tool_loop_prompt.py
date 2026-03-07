@@ -53,6 +53,7 @@ def build_tool_loop_prompt_simple(
         "4) 複雑な調査や長い処理が必要で main のツール回数制限を超えそうな場合："
         "   - task.create_work でワーカーに依頼する（goalと成果物を具体的に指示）。"
         "   - 定期実行/繰り返しは task.create_work_at / task.create_work_repeat を使う。"
+        "   - 依頼文は次の形式を必ず含める：目的/成功条件, 制約/対象範囲, 成果物の形式, 必須項目(結論・根拠・未解決), 不足時の扱い。"
         "5) 過去の出力が必要な場合："
         "   - artifact.search でIDを見つけ、artifact.read / artifact.extract で取得・抽出する。"
         ""

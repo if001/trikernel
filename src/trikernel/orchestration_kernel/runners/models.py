@@ -82,6 +82,7 @@ class StepContext:
 class BaseState(TypedDict):
     task_id: str
     runtime_id: str
+    task_type: str
     messages: Annotated[list[BaseMessage], add_messages]
 
 

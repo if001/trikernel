@@ -36,9 +36,7 @@ from ._shared import budget_exceeded_text, budget_limit, filter_tools, handle_to
 from .prompts.simple_tool_loop_prompt import build_discover_tools_simple_prompt, build_tool_loop_prompt_simple
 from .prompts.tool_loop_common_prompt import (
     build_tool_loop_followup_prompt,
-    build_tool_loop_followup_prompt_for_notification,
     build_tool_loop_followup_prompt_for_worker,
-    build_tool_loop_prompt_simple_for_notification,
     build_tool_loop_prompt_simple_for_worker,
 )
 from ...state_kernel.models import Task
@@ -117,6 +115,7 @@ class SimpleGraphToolLoopRunner(RunnerAPI):
                     "stop": False,
                     "runtime_id": conversation_id,
                     "task_id": task.task_id,
+                    "task_type": task.task_type,
                     "memory_context_text": "",
                     "running_summary": None,
                     "tool_results": [],
@@ -268,12 +267,6 @@ def _build_graph(
                 memory_context_text=memory_context_text,
                 tool_results=tool_results,
             )
-        elif task_type == "notification":
-            system, prompt = build_tool_loop_prompt_simple_for_notification(
-                message=user_message,
-                step_context_text=state["step_context"].to_str(),
-                memory_context_text=memory_context_text,
-            )
         else:
             system, prompt = build_tool_loop_prompt_simple_for_worker(
                 message=user_message,
@@ -344,16 +337,11 @@ def _build_graph(
                 summary=summary.summary if summary else None,
                 tool_results=tool_results,
             )
-        elif task_type == "notification":
-            system, prompt = build_tool_loop_followup_prompt_for_notification(
-                message=user_message,
-                step_context_text=state["step_context"].to_str(),
-                memory_context_text=memory_context_text,
-            )
         else:
             system, prompt = build_tool_loop_followup_prompt_for_worker(
                 message=user_message,
                 step_context_text=state["step_context"].to_str(),
+                tool_results=tool_results,
             )
         response = model.invoke(
             [SystemMessage(content=system)]

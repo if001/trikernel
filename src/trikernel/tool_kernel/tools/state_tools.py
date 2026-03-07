@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from langchain_core.tools import BaseTool, StructuredTool
@@ -8,7 +7,12 @@ from langgraph.prebuilt import InjectedState
 from pydantic import Field
 from typing_extensions import Annotated
 
+from trikernel.utils.logging import get_logger
+from trikernel.utils.time_utils import validate_run_at_future
+
 from ._shared import require_state_api, require_tool_llm
+
+logger = get_logger(__name__)
 
 
 def task_create_user_request(
@@ -28,27 +32,15 @@ def task_create_work(
             ..., description="Work instruction message(with details) for the worker."
         ),
     ],
-    run_at: Annotated[
-        Optional[str],
-        Field(default=None, description="ISO8601 timestamp for scheduling."),
-    ] = None,
-    repeat_interval_seconds: Annotated[
-        Optional[int],
-        Field(default=None, description="Repeat interval in seconds (>= 3600)."),
-    ] = None,
-    repeat_enabled: Annotated[
-        Optional[bool],
-        Field(default=None, description="Whether repeating work is enabled."),
-    ] = None,
     state: Annotated[dict, InjectedState] = {},
 ) -> str:
+    _ensure_not_worker(state)
     state_api = require_state_api(state)
     payload = {
         "message": message,
-        "run_at": run_at,
-        "repeat_interval_seconds": repeat_interval_seconds,
-        "repeat_enabled": repeat_enabled,
     }
+    logger.info("!!!!!!!!!!!!!! create new task !!!!!!!!!!!!!!!!!!!!!!!!!!")
+    logger.info(f"message")
     return state_api.task_create("work", payload)
 
 
@@ -63,7 +55,10 @@ def task_create_work_at(
     state: Annotated[dict, InjectedState] = {},
 ) -> str:
     _validate_run_at(str(run_at))
+    _ensure_not_worker(state)
     state_api = require_state_api(state)
+    logger.info("!!!!!!!!!!!!!! create new task !!!!!!!!!!!!!!!!!!!!!!!!!!")
+    logger.info(f"message")
     return state_api.task_create("work", {"message": message, "run_at": run_at})
 
 
@@ -83,14 +78,22 @@ def task_create_work_repeat(
     ] = None,
     state: Annotated[dict, InjectedState] = {},
 ) -> str:
+    _ensure_not_worker(state)
+    if repeat_enabled is not None:
+        logger.error(
+            "create_work_repeat does not accept repeat_enabled=%s", repeat_enabled
+        )
+        raise ValueError("create_work_repeat does not accept repeat_enabled")
     if int(repeat_interval_seconds) < 3600:
         raise ValueError("repeat_interval_seconds must be >= 3600")
     payload = {
         "message": message,
         "repeat_interval_seconds": repeat_interval_seconds,
-        "repeat_enabled": True if repeat_enabled is None else repeat_enabled,
+        "repeat_enabled": True,
     }
     state_api = require_state_api(state)
+    logger.info("!!!!!!!!!!!!!! create new task !!!!!!!!!!!!!!!!!!!!!!!!!!")
+    logger.info(f"message")
     return state_api.task_create("work", payload)
 
 
@@ -120,9 +123,43 @@ def task_update(
     ],
     state: Annotated[dict, InjectedState] = {},
 ) -> Optional[Dict[str, Any]]:
+    _validate_run_at_patch(patch)
     state_api = require_state_api(state)
     task = state_api.task_update(task_id, patch)
     return task.to_dict() if task else None
+
+
+def _validate_run_at_patch(patch: Dict[str, object]) -> None:
+    payload = patch.get("payload")
+    if not isinstance(payload, dict):
+        return
+    run_at = payload.get("run_at")
+    if run_at is None:
+        return
+    try:
+        validate_run_at_future(str(run_at))
+    except ValueError as exc:
+        logger.error("invalid run_at in patch: %s", run_at)
+        raise exc
+
+
+def _ensure_not_worker(state: dict) -> None:
+    task_type = _extract_task_type(state)
+    if task_type == "work":
+        logger.error("workers cannot create worker tasks")
+        raise ValueError("workers cannot create worker tasks")
+
+
+def _extract_task_type(state: dict) -> Optional[str]:
+    task_type = state.get("task_type")
+    if isinstance(task_type, str):
+        return task_type
+    step_context = state.get("step_context")
+    if step_context is not None:
+        value = getattr(step_context, "task_type", None)
+        if isinstance(value, str):
+            return value
+    return None
 
 
 def task_get(
@@ -256,7 +293,8 @@ def build_state_tools() -> List[BaseTool]:
                 "Start a worker deep-work job for investigations that may exceed the main agent’s per-step tool-call budget.\n"
                 "Use when the main loop needs to offload long-running research / multi-hop browsing / heavy extraction beyond allowed tool iterations.\n"
                 "Not for scheduling; for time-based or periodic runs use task.create_work_at / task.create_work_repeat.\n"
-                "The worker runtime will always emit a notification at the end (not via this tool call)."
+                "The worker runtime will always emit a notification at the end (not via this tool call).\n"
+                "Message format must include: Purpose/Success, Constraints/Scope, Deliverable format, Required items (Conclusion/Evidence/Open items), Handling of unknowns."
             ),
         ),
         StructuredTool.from_function(
@@ -265,7 +303,8 @@ def build_state_tools() -> List[BaseTool]:
             description=(
                 "Schedule a worker job at a specific run_at (ISO8601).\n"
                 "Use for reminders, delayed checks, or actions that must happen at a certain time.\n"
-                "Not for deep-work offloading; use task.create_work if the goal is to exceed main-loop tool budget."
+                "Not for deep-work offloading; use task.create_work if the goal is to exceed main-loop tool budget.\n"
+                "Message format must include: Purpose/Success, Constraints/Scope, Deliverable format, Required items (Conclusion/Evidence/Open items), Handling of unknowns."
             ),
         ),
         StructuredTool.from_function(
@@ -274,7 +313,8 @@ def build_state_tools() -> List[BaseTool]:
             description=(
                 "Schedule a repeating worker job at a fixed interval (repeat_interval_seconds >= 3600).\n"
                 "Use for periodic monitoring/digests/maintenance.\n"
-                "Each run will end with a notification emitted by the worker runtime."
+                "Each run will end with a notification emitted by the worker runtime.\n"
+                "Message format must include: Purpose/Success, Constraints/Scope, Deliverable format, Required items (Conclusion/Evidence/Open items), Handling of unknowns."
             ),
         ),
         # StructuredTool.from_function(
@@ -367,7 +407,8 @@ def build_task_tools() -> List[BaseTool]:
                 "Start a worker deep-work job for investigations that may exceed the main agent’s per-step tool-call budget.\n"
                 "Use when the main loop needs to offload long-running research / multi-hop browsing / heavy extraction beyond allowed tool iterations.\n"
                 "Not for scheduling; for time-based or periodic runs use task.create_work_at / task.create_work_repeat.\n"
-                "The worker runtime will always emit a notification at the end (not via this tool call)."
+                "The worker runtime will always emit a notification at the end (not via this tool call).\n"
+                "Message format must include: Purpose/Success, Constraints/Scope, Deliverable format, Required items (Conclusion/Evidence/Open items), Handling of unknowns."
             ),
         ),
         StructuredTool.from_function(
@@ -376,7 +417,8 @@ def build_task_tools() -> List[BaseTool]:
             description=(
                 "Schedule a worker job at a specific run_at (ISO8601).\n"
                 "Use for reminders, delayed checks, or actions that must happen at a certain time.\n"
-                "Not for deep-work offloading; use task.create_work if the goal is to exceed main-loop tool budget."
+                "Not for deep-work offloading; use task.create_work if the goal is to exceed main-loop tool budget.\n"
+                "Message format must include: Purpose/Success, Constraints/Scope, Deliverable format, Required items (Conclusion/Evidence/Open items), Handling of unknowns."
             ),
         ),
         StructuredTool.from_function(
@@ -385,7 +427,8 @@ def build_task_tools() -> List[BaseTool]:
             description=(
                 "Schedule a repeating worker job at a fixed interval (repeat_interval_seconds >= 3600).\n"
                 "Use for periodic monitoring/digests/maintenance.\n"
-                "Each run will end with a notification emitted by the worker runtime."
+                "Each run will end with a notification emitted by the worker runtime.\n"
+                "Message format must include: Purpose/Success, Constraints/Scope, Deliverable format, Required items (Conclusion/Evidence/Open items), Handling of unknowns."
             ),
         ),
         StructuredTool.from_function(
@@ -403,11 +446,7 @@ def build_task_tools() -> List[BaseTool]:
 
 def _validate_run_at(run_at: str) -> None:
     try:
-        parsed = datetime.fromisoformat(run_at)
+        validate_run_at_future(run_at)
     except ValueError as exc:
-        raise ValueError("run_at must be ISO8601 format") from exc
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    now = datetime.now(timezone.utc)
-    if parsed < now:
-        raise ValueError("run_at must be in the future")
+        logger.error("invalid run_at: %s", run_at)
+        raise exc
