@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import asyncio
 import concurrent.futures
-from datetime import datetime, timedelta, timezone
 import threading
 from typing import Any, Dict, List, Optional, Union
 
@@ -19,6 +18,7 @@ from ..orchestration_kernel.models import RunResult
 from ..state_kernel import LangMemMemoryManager
 from ..state_kernel.models import Task
 from ..state_kernel.protocols import StateKernelAPI
+from ..utils.time_utils import validate_run_at_future
 from .payloads import UserRequestPayload, WorkPayload
 
 logger = get_logger(__name__)
@@ -253,17 +253,7 @@ class TrikernelSession:
 
 
 def _validate_run_at(run_at: str) -> None:
-    try:
-        parsed = datetime.fromisoformat(run_at)
-    except ValueError as exc:
-        raise ValueError("run_at must be ISO8601 format") from exc
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    now = datetime.now(timezone.utc)
-    if parsed < now:
-        raise ValueError("run_at must be in the future")
-    if parsed > now + timedelta(days=365):
-        raise ValueError("run_at must be within 1 year")
+    validate_run_at_future(run_at)
 
 
 def _user_facing_error_message() -> str:

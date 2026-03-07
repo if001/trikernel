@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from trikernel.utils.logging import get_logger
+from trikernel.utils.time_utils import parse_run_at
 
 from ..state_kernel.models import Task, parse_time
 from ..state_kernel.protocols import StateKernelAPI
@@ -68,6 +69,14 @@ class WorkDispatcher:
                 continue
             run_at = _parse_run_at(task.payload or {})
             if run_at is None:
+                logger.error("invalid run_at: %s", task.task_id)
+                self.state_api.task_fail(
+                    task.task_id,
+                    {
+                        "code": "INVALID_RUN_AT",
+                        "message": "run_at must be ISO8601 format.",
+                    },
+                )
                 continue
             if run_at > now:
                 continue
@@ -213,12 +222,10 @@ def _parse_run_at(payload: dict) -> Optional[datetime]:
     if not run_at:
         return datetime.min.replace(tzinfo=timezone.utc)
     try:
-        parsed = datetime.fromisoformat(str(run_at))
-    except (TypeError, ValueError):
+        parsed = parse_run_at(str(run_at))
+    except ValueError:
         return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+    return parsed
 
 
 def _is_recurring(payload: dict) -> bool:
